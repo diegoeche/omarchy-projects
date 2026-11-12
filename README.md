@@ -2,6 +2,11 @@
 
 **One project name. One shortcut. Every monitor switches together.**
 
+[![Two monitors switching between three projects, with scrolling wallpapers and application theme changes](docs/project-switching.gif)](docs/project-switching.mp4)
+
+[Silent 60 fps video (MP4)](docs/project-switching.mp4). Both monitors switch
+through three projects and back, with their windows, wallpapers, and themes.
+
 Development is hosted on Gitea; GitHub is the public mirror.
 
 A small layer over Omarchy 4.5's existing per-monitor workspaces. Each project
