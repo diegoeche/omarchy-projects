@@ -12,4 +12,3 @@ Keep this a small customization layer for Omarchy 4.5+, not another desktop shel
 - Desktop checks may switch project views, but move only disposable test windows.
 - Publishing this repository does not authorize publishing desktop captures or
   personal configuration. Use synthetic fixtures for public screenshots.
-
