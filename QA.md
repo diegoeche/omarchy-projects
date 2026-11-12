@@ -10,7 +10,7 @@ markup is rendered as plain text, without opening a desktop window.
 
 ## Verified on 2026-11-12
 
-- 13 Python tests and 13 controller behavior tests passed.
+- 22 Python tests and 16 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
@@ -19,6 +19,10 @@ markup is rendered as plain text, without opening a desktop window.
 - Hyprland reported no configuration errors after installation and the checks.
 - Native removal restored the stock numbered-workspace bindings; reinstallation
   retained the private project configuration.
+- Project appearance switching restored each configured wallpaper automatically;
+  rapid changes converged on the final project. The initial palette change used
+  Omarchy's standard theme command. The former-project shortcut survives theme
+  reloads, and silent window moves do not queue appearance changes.
 - The running session was locked during bar verification. A shell restart was
   correctly refused by Omarchy; an unlocked, on-screen bar inspection is pending.
 

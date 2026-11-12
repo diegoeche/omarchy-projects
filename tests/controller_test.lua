@@ -1,5 +1,5 @@
 local failures, passes = 0, 0
-local events, timers, monitors, windows, focused, active, calls, bases, tearing
+local events, timers, monitors, windows, focused, active, calls, bases, tearing, spawned
 
 local function equal(actual, expected)
   assert(actual == expected, 'expected ' .. tostring(expected) .. ', got ' .. tostring(actual))
@@ -12,7 +12,7 @@ local function flush()
 end
 
 local function fixture(options)
-  events, timers, calls, windows, bases, tearing = {}, {}, {}, {}, { left = 0, right = 40 }, false
+  events, timers, calls, windows, bases, tearing, spawned = {}, {}, {}, {}, { left = 0, right = 40 }, false, {}
   monitors = {
     { name = 'left', description = 'Left Display', id = 0, active_workspace = { id = 1 } },
     { name = 'right', description = 'Right Display', id = 1, active_workspace = { id = 41 } },
@@ -48,6 +48,7 @@ local function fixture(options)
       table.insert(events[event], callback)
     end,
     timer = function(callback) timers[#timers + 1] = callback end,
+    exec_cmd = function(command) spawned[#spawned + 1] = command end,
     unbind = function() end,
     dsp = {
       focus = function(options) return { kind = 'focus', options = options } end,
@@ -231,6 +232,42 @@ test('keybinding menu expressions return runnable callbacks', function()
   local callback = assert(load('return ' .. expression))()
   callback()
   equal(controller.current().id, 'boreal')
+end)
+
+test('rapid project changes queue only the latest appearance', function()
+  local file = os.tmpname()
+  local controller = fixture({ appearance_request_file = file, appearance_command = 'worker' })
+  controller.show('boreal')
+  controller.show('personal')
+  flush()
+  equal(#spawned, 1)
+  local stream = assert(io.open(file))
+  equal(stream:read('*a'), '{"project":"personal"}\n')
+  stream:close()
+  os.remove(file)
+end)
+
+test('silent window moves do not change appearance', function()
+  local file = os.tmpname()
+  local controller = fixture({ appearance_request_file = file, appearance_command = 'worker' })
+  flush()
+  equal(#spawned, 1)
+  controller.move('personal', false)
+  flush()
+  equal(#spawned, 1)
+  os.remove(file)
+end)
+
+test('former project survives the reload caused by changing themes', function()
+  local history, view = os.tmpname(), os.tmpname()
+  local controller, _, config = fixture({ history_file = history, state_file = view })
+  controller.show('boreal')
+  events, timers = {}, {}
+  controller = dofile('hypr/controller.lua').setup(config)
+  controller.back()
+  equal(controller.current().id, 'atlas')
+  os.remove(history)
+  os.remove(view)
 end)
 
 test('published names round trip as JSON data, including markup', function()

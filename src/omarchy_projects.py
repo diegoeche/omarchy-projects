@@ -5,9 +5,13 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
+
+from project_appearance import (apply_requested, current_look, resolve_look,
+                                snapshot_look, validate_appearance)
 
 
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{0,39}\Z")
@@ -45,8 +49,9 @@ def validate(value):
         raise ProjectError("define between 1 and 10 projects")
     ids, slots, result = set(), set(), []
     for project in projects:
-        if not isinstance(project, dict) or set(project) != {"id", "name", "slot"}:
-            raise ProjectError("each project needs exactly id, name, and slot")
+        if (not isinstance(project, dict) or not {"id", "name", "slot"} <= set(project)
+                or set(project) - {"id", "name", "slot", "appearance"}):
+            raise ProjectError("each project needs id, name, slot, and optionally appearance")
         ident, name, slot = (project[k] for k in ("id", "name", "slot"))
         if not isinstance(ident, str) or not IDENTIFIER.fullmatch(ident):
             raise ProjectError("project ids must use lowercase letters, digits, - or _")
@@ -58,6 +63,8 @@ def validate(value):
             raise ProjectError("project ids and slots must be unique")
         ids.add(ident)
         slots.add(slot)
+        if "appearance" in project:
+            validate_appearance(project["appearance"])
         result.append(dict(project))
     monitors = value.get("monitors", [])
     if not isinstance(monitors, list) or any(
@@ -120,8 +127,79 @@ def atomic_write(path, content, mode=0o600):
 
 
 def compile_config(config, locations):
-    data = dict(config, state_file=str(locations["state"] / "view.json"))
+    data = dict(config, state_file=str(locations["state"] / "view.json"),
+                history_file=str(locations["state"] / "history"))
+    if any("appearance" in project for project in config["projects"]):
+        data["appearance_request_file"] = str(locations["state"] / "appearance-request.json")
+        data["appearance_command"] = shlex.join([
+            sys.executable, str(locations["data"] / "omarchy_projects.py"), "appearance", "apply"
+        ]) + " >> " + shlex.quote(str(locations["state"] / "appearance.log")) + " 2>&1"
     return "-- Generated from projects.json; run omarchy-projects reload after editing.\nreturn " + lua(data) + "\n"
+
+
+def select_project(config, ident):
+    project = next((p for p in config["projects"]
+                    if p["id"] == ident or str(p["slot"]) == ident), None)
+    if project is None:
+        raise ProjectError(f"unknown project: {ident}")
+    return project
+
+
+def focused_project(config, locations):
+    call("publish")
+    view = json.loads((locations["state"] / "view.json").read_text())
+    monitors = json.loads(hyprctl("-j", "monitors"))
+    focused = next((m for m in monitors if m["focused"]), None)
+    if focused:
+        for monitor in view["monitors"]:
+            if monitor["name"] == focused["name"]:
+                for ident, workspace in monitor["workspaces"].items():
+                    if workspace == focused["activeWorkspace"]["id"]:
+                        return select_project(config, ident)
+    raise ProjectError("focus a configured project first")
+
+
+def save_config_change(config, locations):
+    path = locations["config"]
+    previous = path.read_text()
+    atomic_write(locations["state"] / "projects.before-appearance.json", previous)
+    atomic_write(path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+    try:
+        reload_config(locations)
+    except Exception:
+        atomic_write(path, previous)
+        raise
+
+
+def appearance_command(args, config, locations):
+    if args.appearance_action == "apply":
+        apply_requested(locations, load_config)
+        return
+    project = select_project(config, args.project) if args.project else focused_project(config, locations)
+    if args.appearance_action == "menu":
+        call("show", project["id"])
+        apply_requested(locations, load_config)
+        choices = ["Open Aether", "Save current theme and wallpaper"]
+        result = subprocess.run(["omarchy", "menu", "select", "Project appearance", *choices],
+                                capture_output=True, text=True)
+        if result.returncode:
+            return
+        choice = result.stdout.strip()
+        if choice == choices[0]:
+            subprocess.Popen(["aether"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+            return
+        if choice != choices[1]:
+            return
+        args.appearance_action = "save"
+    if args.appearance_action == "save":
+        if focused_project(config, locations)["id"] != project["id"]:
+            raise ProjectError("switch to that project before saving its current appearance")
+        project["appearance"] = snapshot_look(project["id"], current_look(locations), locations)
+    else:
+        project["appearance"] = resolve_look({"theme": args.theme, "wallpaper": args.wallpaper}, locations)
+    save_config_change(config, locations)
+    print("Saved appearance for " + project["name"])
 
 
 def hyprctl(*arguments):
@@ -174,13 +252,24 @@ def main(argv=None):
         commands.add_parser(name)
     monitor = commands.add_parser("monitor", help="move the active window to a neighboring screen in the same project")
     monitor.add_argument("direction", choices=["l", "r", "u", "d"])
+    appearance = commands.add_parser("appearance", help="configure each project's theme and wallpaper")
+    appearance_actions = appearance.add_subparsers(dest="appearance_action", required=True)
+    appearance_actions.add_parser("apply", help="apply the latest queued project appearance")
+    for name in ("save", "menu", "set"):
+        action = appearance_actions.add_parser(name)
+        action.add_argument("project", nargs=None if name == "set" else "?", help="defaults to the focused project")
+        if name == "set":
+            action.add_argument("--theme", required=True)
+            action.add_argument("--wallpaper", required=True)
     args = parser.parse_args(argv)
     locations = paths()
     try:
         if args.config and args.command not in {"list", "check"}:
             raise ProjectError("--config is only supported by list and check; install to activate a config")
         config = load_config(args.config or locations["config"])
-        if args.command == "list":
+        if args.command == "appearance":
+            appearance_command(args, config, locations)
+        elif args.command == "list":
             for project in config["projects"]:
                 print(f'{project["slot"]:2}  {project["id"]:16} {project["name"]}')
         elif args.command == "check":
@@ -205,10 +294,7 @@ def main(argv=None):
                 for row in rows:
                     print(f'{row["monitor"]}: {row["project"] or "other workspace"} ({row["workspace"]})')
         elif args.command in {"switch", "move"}:
-            project = next((p for p in config["projects"]
-                            if p["id"] == args.project or str(p["slot"]) == args.project), None)
-            if project is None:
-                raise ProjectError(f"unknown project: {args.project}")
+            project = select_project(config, args.project)
             if args.command == "switch":
                 call("show", project["id"])
             else:

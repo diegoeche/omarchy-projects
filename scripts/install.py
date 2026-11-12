@@ -137,7 +137,7 @@ def install(locations, config_path=None, no_bar=False, no_reload=False, uninstal
                 transaction.write(locations["shell"], json.dumps(shell, indent=2) + "\n")
             for name in ("manifest.json", "Projects.qml"):
                 transaction.remove(locations["plugin"] / name)
-            for name in ("controller.lua", "omarchy_projects.py"):
+            for name in ("controller.lua", "omarchy_projects.py", "project_appearance.py"):
                 transaction.remove(locations["data"] / name)
             transaction.remove(locations["bin"])
             transaction.remove(record_path)
@@ -149,6 +149,7 @@ def install(locations, config_path=None, no_bar=False, no_reload=False, uninstal
             transaction.write(locations["state"] / "config.lua", compile_config(config, locations))
             transaction.write(locations["data"] / "controller.lua", (ROOT / "hypr/controller.lua").read_text())
             transaction.write(locations["data"] / "omarchy_projects.py", (ROOT / "src/omarchy_projects.py").read_text())
+            transaction.write(locations["data"] / "project_appearance.py", (ROOT / "src/project_appearance.py").read_text())
             launcher = ("#!/usr/bin/env python3\nimport sys\nsys.path.insert(0, "
                         + repr(str(locations["data"])) + ")\nfrom omarchy_projects import main\nsys.exit(main())\n")
             transaction.write(locations["bin"], launcher, 0o755)

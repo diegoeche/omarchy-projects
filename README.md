@@ -23,11 +23,13 @@ outside the configured projects remain clickable as `WS N`.
   `move_window`, and `workspace_id` from Omarchy.
 - A small native Omarchy bar widget, using the existing shell and theme.
 - A CLI and installer using Python's standard library.
+- Optional project themes and wallpapers, applied through Omarchy's own commands.
 
 **No package installation, third-party Python libraries, daemon, service, or
 polling loop.** Python 3, Hyprland Lua, and Quickshell are already part of a
 standard Omarchy installation. The controller uses short one-shot event timers;
-the widget watches a local state file and compositor events.
+the widget watches a local state file and compositor events. Appearance changes
+run in a short-lived serialized worker, not a resident background process.
 
 This does not replace Omarchy's workspace reconciler, renumber workspaces,
 configure displays, or modify packaged Omarchy files.
@@ -142,6 +144,56 @@ omarchy-projects check
 The CLI runs only when invoked. Switching from a bar button or keybinding uses
 the in-process Lua module directly. Project labels are rendered as plain text.
 
+## Project themes and wallpapers
+
+Right-click a project name to open its appearance menu. **Open Aether** switches
+to that project and opens the existing Aether app. When the look is ready,
+right-click the project again and choose **Save current theme and wallpaper**.
+This saves the installed theme's name and a durable copy of the wallpaper.
+
+Switching projects then restores the saved wallpaper and palette. Aether edits
+are not undone by its compositor reloads: saving is explicit, so you can finish
+configuring a look before replacing the project's previous setting.
+
+The same operations are available from the CLI:
+
+```sh
+omarchy-projects appearance menu atlas
+omarchy-projects appearance save           # current project
+omarchy-projects appearance save atlas    # Atlas must be focused
+omarchy-projects appearance set atlas --theme catppuccin --wallpaper ~/Pictures/atlas.png
+```
+
+Or add an optional `appearance` field to a project in `projects.json`, then run
+`omarchy-projects reload`:
+
+```json
+{
+  "id": "atlas",
+  "name": "Atlas",
+  "slot": 1,
+  "appearance": {
+    "theme": "catppuccin",
+    "wallpaper": "~/Pictures/atlas.png"
+  }
+}
+```
+
+Theme slugs must name installed Omarchy themes; wallpapers are local files.
+Profiles are independent even when they initially use the same theme. Projects
+without an appearance setting leave the current look in place.
+
+Workspace navigation remains immediate. Appearance changes are debounced and
+serialized, with rapid switching converging on the latest project. Switching
+between projects with the same palette only changes the wallpaper. Failed
+background/theme commands are recorded in
+`~/.local/state/omarchy-projects/appearance.log`.
+
+Omarchy themes are global: the active project's palette applies to the bar,
+terminals, and other themed applications, including windows on hidden projects.
+The next project switch restores its assigned look. Aether is optional; themes
+and wallpaper paths can be configured directly without installing it.
+
 ## Hotplug and current limits
 
 This is primarily for fixed multi-monitor project workflows. Omarchy continues
@@ -157,7 +209,7 @@ through the extra `WS N` buttons. Switching projects after reconnecting uses
 Omarchy's current mapping.
 
 There are at most ten projects, matching Omarchy's ten slots per monitor.
-Project history is kept for the current config session and resets on reload.
+Project history survives the compositor reloads triggered by theme changes.
 App launch recipes, saved layouts, and Slack instances are outside this version.
 
 ## Update and remove

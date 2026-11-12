@@ -97,7 +97,13 @@ BarWidget {
         opacity: active || root.occupiedProject(modelData.id) ? 1 : 0.5
         horizontalMargin: 9
         fixedHeight: root.barSize
-        onPressed: root.run("omarchy_projects.show(" + JSON.stringify(modelData.id) + ")")
+        onPressed: function(button) {
+          if (button === Qt.RightButton && root.bar) {
+            root.bar.run("omarchy-projects appearance menu " + Util.shellQuote(modelData.id))
+          } else {
+            root.run("omarchy_projects.show(" + JSON.stringify(modelData.id) + ")")
+          }
+        }
       }
     }
 

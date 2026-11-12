@@ -4,6 +4,7 @@ local M = {}
 local config, by_id, by_slot = nil, {}, {}
 local busy, settling, generation = false, false, 0
 local selected, previous = nil, nil
+local appearance_project, appearance_generation = nil, 0
 
 local function json_string(value)
   return '"' .. tostring(value):gsub('[%z\1-\31\\"]', function(char)
@@ -15,6 +16,21 @@ end
 
 local function json_array(values)
   return '[' .. table.concat(values, ',') .. ']'
+end
+
+function M.request_appearance(project)
+  if not config.appearance_request_file or not config.appearance_command or appearance_project == project.id then return end
+  local path = config.appearance_request_file
+  local file = assert(io.open(path .. '.tmp', 'w'))
+  file:write('{"project":' .. json_string(project.id) .. '}\n')
+  file:close()
+  assert(os.rename(path .. '.tmp', path))
+  appearance_project = project.id
+  appearance_generation = appearance_generation + 1
+  local pending = appearance_generation
+  hl.timer(function()
+    if pending == appearance_generation then hl.exec_cmd(config.appearance_command) end
+  end, { type = 'oneshot', timeout = 100 })
 end
 
 function M.monitors()
@@ -77,6 +93,12 @@ function M.publish()
   file:write(content)
   file:close()
   assert(os.rename(config.state_file .. '.tmp', config.state_file))
+  if config.history_file and selected then
+    local history = assert(io.open(config.history_file .. '.tmp', 'w'))
+    history:write(selected.id .. '\n' .. (previous and previous.id or '') .. '\n')
+    history:close()
+    assert(os.rename(config.history_file .. '.tmp', config.history_file))
+  end
 end
 
 local function synchronized(project)
@@ -119,6 +141,7 @@ function M.show(id)
   if not ok then error(err) end
   selected = project
   M.publish()
+  M.request_appearance(project)
   return true
 end
 
@@ -209,6 +232,7 @@ function M.setup(settings)
     and type(o.workspaces.workspace_id) == 'function', 'Omarchy 4.5+ workspace helpers are required')
   config, by_id, by_slot = settings, {}, {}
   busy, settling, selected, previous = false, false, nil, nil
+  appearance_project = nil
   for _, project in ipairs(config.projects) do
     assert(not by_id[project.id] and not by_slot[project.slot], 'Duplicate project id or slot')
     by_id[project.id], by_slot[project.slot] = project, project
@@ -229,7 +253,7 @@ function M.setup(settings)
   hl.on('monitor.added', topology_changed)
   hl.on('monitor.removed', topology_changed)
   hl.on('workspace.active', function()
-    if busy or settling or not config.follow_focus then return end
+    if busy or settling then return end
     generation = generation + 1
     local pending = generation
     hl.timer(function()
@@ -238,12 +262,22 @@ function M.setup(settings)
       if project then
         if selected and selected ~= project then previous = selected end
         selected = project
-        if not synchronized(project) then M.show(project.id) end
+        if config.follow_focus and not synchronized(project) then M.show(project.id)
+        else M.request_appearance(project) end
       end
     end, { type = 'oneshot', timeout = 40 })
   end)
   selected = M.current()
+  if config.history_file and selected then
+    local history = io.open(config.history_file, 'r')
+    if history then
+      local last, former = by_id[history:read('*l')], by_id[history:read('*l')]
+      history:close()
+      if last == selected then previous = former else previous = last end
+    end
+  end
   M.publish()
+  if selected then M.request_appearance(selected) end
   return M
 end
 
