@@ -9,10 +9,14 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from omarchy_projects import ProjectError, atomic_write, compile_config, hyprctl, load_config, lua, paths
+from project_assets import prepare_assets
 
 START = "-- >>> omarchy-projects >>>"
 END = "-- <<< omarchy-projects <<<"
 PLUGIN = "diegoeche.projects"
+BACKGROUND = "diegoeche.background"
+BACKGROUND_FILES = ("ProjectMotion.js", "ProjectWallpapers.qml", "ProjectScene.qml", "Background.qml", "manifest.json")
+THEME_HELPERS = ("omarchy-restart-hyprctl", "omarchy-theme-set-templates", "omarchy-shell")
 
 
 class Transaction:
@@ -116,6 +120,40 @@ def remove_bar(shell, replacements):
         rows[:] = updated
 
 
+def enable_background(shell, record):
+    if "background" not in record:
+        # A clone created with `omarchy plugin clone` already records whether
+        # its stock source should be restored. Adopt that record on install.
+        restores = shell.get("cloneSourceRestores", [])
+        record["background"] = {"restore_stock": "omarchy.background" not in shell.get("disabledPlugins", [])
+                                or BACKGROUND in restores}
+    plugins = shell.setdefault("plugins", [])
+    if not any(isinstance(row, dict) and row.get("id") == BACKGROUND for row in plugins):
+        plugins.append({"id": BACKGROUND})
+    disabled = shell.setdefault("disabledPlugins", [])
+    if "omarchy.background" not in disabled:
+        disabled.append("omarchy.background")
+    if BACKGROUND in disabled:
+        disabled.remove(BACKGROUND)
+    if record["background"]["restore_stock"]:
+        restores = shell.setdefault("cloneSourceRestores", [])
+        if BACKGROUND not in restores:
+            restores.append(BACKGROUND)
+
+
+def remove_background(shell, record):
+    shell["plugins"] = [row for row in shell.get("plugins", [])
+                        if not isinstance(row, dict) or row.get("id") != BACKGROUND]
+    for key in ("disabledPlugins", "cloneSourceRestores"):
+        values = [value for value in shell.get(key, []) if value != BACKGROUND]
+        if key == "disabledPlugins" and record.get("background", {}).get("restore_stock"):
+            values = [value for value in values if value != "omarchy.background"]
+        if values:
+            shell[key] = values
+        else:
+            shell.pop(key, None)
+
+
 def install(locations, config_path=None, no_bar=False, no_reload=False, uninstall=False):
     if not locations["hypr"].is_file():
         raise ProjectError(f'Hyprland Lua config not found: {locations["hypr"]}')
@@ -131,31 +169,57 @@ def install(locations, config_path=None, no_bar=False, no_reload=False, uninstal
     try:
         if uninstall:
             transaction.write(locations["hypr"], strip_loader(locations["hypr"].read_text()))
-            if record.get("bar") and locations["shell"].exists():
+            if (record.get("bar") or record.get("background")) and locations["shell"].exists():
                 shell = json.loads(locations["shell"].read_text())
-                remove_bar(shell, record.get("bar_replacements", []))
+                if record.get("bar"):
+                    remove_bar(shell, record.get("bar_replacements", []))
+                if record.get("background"):
+                    remove_background(shell, record)
                 transaction.write(locations["shell"], json.dumps(shell, indent=2) + "\n")
             for name in ("manifest.json", "Projects.qml"):
                 transaction.remove(locations["plugin"] / name)
-            for name in ("controller.lua", "omarchy_projects.py", "project_appearance.py"):
+            for name in BACKGROUND_FILES:
+                transaction.remove(locations["background_plugin"] / name)
+            for name in ("controller.lua", "omarchy_projects.py", "project_appearance.py", "project_assets.py"):
                 transaction.remove(locations["data"] / name)
-            transaction.remove(locations["data"] / "theme-bin/omarchy-restart-hyprctl")
+            for name in THEME_HELPERS:
+                transaction.remove(locations["data"] / "theme-bin" / name)
             transaction.remove(locations["bin"])
             transaction.remove(record_path)
         else:
             source_config = config_path or (locations["config"] if locations["config"].exists()
                                            else ROOT / "examples/projects.json")
             config = load_config(source_config)
+            scene = prepare_assets(config, locations, write=False)
+            if scene is not None:
+                transaction.write(locations["state"] / "scene.json", json.dumps(scene, indent=2) + "\n")
             transaction.write(locations["config"], json.dumps(config, indent=2, ensure_ascii=False) + "\n")
             transaction.write(locations["state"] / "config.lua", compile_config(config, locations))
             transaction.write(locations["data"] / "controller.lua", (ROOT / "hypr/controller.lua").read_text())
             transaction.write(locations["data"] / "omarchy_projects.py", (ROOT / "src/omarchy_projects.py").read_text())
-            transaction.write(locations["data"] / "project_appearance.py", (ROOT / "src/project_appearance.py").read_text())
-            transaction.write(locations["data"] / "theme-bin/omarchy-restart-hyprctl",
-                              (ROOT / "theme-bin/omarchy-restart-hyprctl").read_text(), 0o755)
+            for name in ("project_appearance.py", "project_assets.py"):
+                transaction.write(locations["data"] / name, (ROOT / "src" / name).read_text())
+            for name in THEME_HELPERS:
+                transaction.write(locations["data"] / "theme-bin" / name,
+                                  (ROOT / "theme-bin" / name).read_text(), 0o755)
             launcher = ("#!/usr/bin/env python3\nimport sys\nsys.path.insert(0, "
                         + repr(str(locations["data"])) + ")\nfrom omarchy_projects import main\nsys.exit(main())\n")
             transaction.write(locations["bin"], launcher, 0o755)
+            if config.get("preload_wallpapers"):
+                if not locations["shell"].is_file():
+                    raise ProjectError("Preloaded wallpapers require the Omarchy shell")
+                shell = json.loads(locations["shell"].read_text())
+                enable_background(shell, record)
+                for name in BACKGROUND_FILES:
+                    transaction.write(locations["background_plugin"] / name, (ROOT / "background" / name).read_text())
+                transaction.write(locations["shell"], json.dumps(shell, indent=2) + "\n")
+            elif record.get("background"):
+                shell = json.loads(locations["shell"].read_text())
+                remove_background(shell, record)
+                transaction.write(locations["shell"], json.dumps(shell, indent=2) + "\n")
+                for name in BACKGROUND_FILES:
+                    transaction.remove(locations["background_plugin"] / name)
+                record.pop("background")
             if not no_bar:
                 if not locations["shell"].is_file():
                     raise ProjectError(f'Omarchy shell config not found: {locations["shell"]}; use --no-bar')

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "diegoeche.background",
+  "name": "Project Backgrounds",
+  "version": "0.3.0",
+  "author": "Diego Echeverri; Omarchy contributors",
+  "description": "Preloaded project wallpapers and coordinated workspace slides",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Background.qml"},
+  "omarchy": {"clonedFrom": "omarchy.background"}
+}

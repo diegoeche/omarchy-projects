@@ -86,6 +86,33 @@ class InstallTests(unittest.TestCase):
         installer.install(self.locations, no_reload=True, uninstall=True)
         self.assertEqual(json.loads(self.locations["shell"].read_text()), self.shell)
 
+    def test_preloaded_background_upgrade_and_removal_restore_stock(self):
+        config = Path(self.temp.name) / 'private.json'
+        config.write_text(json.dumps({'version': 1, 'preload_wallpapers': True,
+                                     'projects': [{'id': 'atlas', 'name': 'Atlas', 'slot': 1}]}))
+        for _ in range(2):
+            installer.install(self.locations, config_path=config, no_reload=True)
+        shell = json.loads(self.locations['shell'].read_text())
+        self.assertIn({'id': installer.BACKGROUND}, shell['plugins'])
+        self.assertIn('omarchy.background', shell['disabledPlugins'])
+        self.assertTrue((self.locations['background_plugin'] / 'ProjectScene.qml').is_file())
+        self.assertEqual((self.locations['data'] / 'theme-bin/omarchy-shell').stat().st_mode & 0o777, 0o755)
+        shell['idle']['lock'] = 900
+        self.locations['shell'].write_text(json.dumps(shell))
+        installer.install(self.locations, uninstall=True, no_reload=True)
+        shell = json.loads(self.locations['shell'].read_text())
+        self.assertNotIn('omarchy.background', shell.get('disabledPlugins', []))
+        self.assertNotIn({'id': installer.BACKGROUND}, shell['plugins'])
+        self.assertEqual(shell['idle']['lock'], 900)
+        self.assertFalse((self.locations['background_plugin'] / 'Background.qml').exists())
+
+    def test_background_removal_keeps_previously_disabled_stock_disabled(self):
+        record = {}
+        shell = {'disabledPlugins': ['omarchy.background', 'other.plugin']}
+        installer.enable_background(shell, record)
+        installer.remove_background(shell, record)
+        self.assertEqual(shell['disabledPlugins'], ['omarchy.background', 'other.plugin'])
+
     def test_uninstall_restores_workspace_widget_if_project_widget_was_moved(self):
         installer.install(self.locations, no_reload=True)
         shell = json.loads(self.locations["shell"].read_text())

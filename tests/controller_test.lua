@@ -51,10 +51,12 @@ local function fixture(options)
     exec_cmd = function(command) spawned[#spawned + 1] = command end,
     unbind = function() end,
     dsp = {
+      global = function(name) return { kind = 'global', name = name } end,
       focus = function(options) return { kind = 'focus', options = options } end,
       window = { move = function(options) return { kind = 'move', options = options } end },
     },
     dispatch = function(dispatch)
+      if dispatch.kind == 'global' then calls[#calls + 1] = dispatch end
       if dispatch.kind == 'focus' then focused = assert(find(dispatch.options.monitor)) end
       if dispatch.kind == 'move' then
         local target = tonumber(dispatch.options.workspace)
@@ -242,7 +244,7 @@ test('rapid project changes queue only the latest appearance', function()
   flush()
   equal(#spawned, 1)
   local stream = assert(io.open(file))
-  equal(stream:read('*a'), '{"project":"personal"}\n')
+  equal(stream:read('*a'), '{"project":"personal","wallpaper_managed":false}\n')
   stream:close()
   os.remove(file)
 end)
@@ -309,6 +311,38 @@ test('published names round trip as JSON data, including markup', function()
   assert(output:find('\\"', 1, true))
   assert(output:find('"boreal":43', 1, true))
   os.remove(file)
+end)
+
+test('renderer coordinates commit and a dead shell cannot strand keyboard switching', function()
+  local controller = fixture({ preload_wallpapers = true })
+  controller.renderer_ready(true)
+  controller.show('boreal')
+  equal(calls[1].name, 'omarchy-projects:show-3')
+  equal(controller.current().id, 'atlas')
+  controller.commit('boreal')
+  flush()
+  equal(controller.current().id, 'boreal')
+  controller.back()
+  equal(calls[#calls].name, 'omarchy-projects:show-1')
+  controller.commit('atlas')
+  flush()
+  controller.show('personal')
+  equal(calls[#calls].kind, 'global')
+  flush() -- no renderer acknowledgement: fall back to the compositor
+  equal(controller.current().id, 'personal')
+  controller.show('atlas')
+  equal(calls[#calls].slot, 1)
+end)
+
+test('external focus without follow synchronizes appearance without moving other screens', function()
+  local controller, emit = fixture({ preload_wallpapers = true, follow_focus = false })
+  controller.renderer_ready(true)
+  monitors[2].active_workspace = { id = 43 }
+  emit('workspace.active')
+  flush()
+  equal(monitors[1].active_workspace.id, 1)
+  equal(monitors[2].active_workspace.id, 43)
+  equal(calls[#calls].name, 'omarchy-projects:look-3')
 end)
 
 print(string.format('%d passed, %d failed', passes, failures))

@@ -1,0 +1,32 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const motion = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../background/ProjectMotion.js'), 'utf8'), motion);
+assert.ok(motion.offset('a', 'a', 'b', 1, 0, 1920) === 0);
+assert.equal(motion.offset('b', 'a', 'b', 1, 0, 1920), 1920);
+assert.equal(motion.offset('a', 'a', 'b', 1, .5, 1920), -960);
+assert.equal(motion.offset('b', 'a', 'b', 1, .5, 1920), 960);
+assert.equal(motion.offset('a', 'a', 'b', -1, .5, 2560), 1280);
+assert.equal(motion.offset('a', 'a', 'a', 1, .5, 1920), 0);
+const base = {foreground:'#000000',background:'#000000',accent:'#000000',urgent:'#000000',muted:'#000000'};
+const target = motion.parseBase('foreground = "#ffffff"\nbackground = "#ffffff"\ncolor4 = "#abcdef"\ncolor8 = "#222222"', base);
+assert.equal(target.accent, '#abcdef');
+assert.equal(target.muted, '#222222');
+const plan = motion.palettePlan(base, {'bar.background':'#000000','font.size':'12'}, target,
+  {'bar.background':'#ffffff','font.size':'14'});
+assert.equal(motion.paletteFrame(plan, 0).shell['bar.background'], '#000000');
+assert.equal(motion.paletteFrame(plan, .5).shell['bar.background'], '#808080');
+assert.equal(motion.paletteFrame(plan, .5).shell['font.size'], '12');
+assert.equal(motion.paletteFrame(plan, 1).shell['bar.background'], '#ffffff');
+assert.equal(motion.paletteFrame(plan, 1).shell['font.size'], '14');
+assert.equal(base.foreground, '#000000');
+const key = 'a'.repeat(64);
+const scene = {version:1, duration:200, style:'slide', assets:[{key,path:'/tmp/a.png',width:10,height:10}],
+  projects:[{id:'atlas',slot:1,asset:key,colors:'',shell:''}]};
+assert.ok(motion.validManifest(scene));
+assert.ok(!motion.validManifest({...scene, projects:[{...scene.projects[0], id:'<img src=x>'}]}));
+assert.ok(!motion.validManifest({...scene, assets:[{...scene.assets[0], path:'https://invalid.test/a.png'}]}));
+assert.ok(!motion.validManifest({...scene, projects:[scene.projects[0],scene.projects[0]]}));
+console.log('PASS positions, color interpolation, stable metrics, and local manifest validation');

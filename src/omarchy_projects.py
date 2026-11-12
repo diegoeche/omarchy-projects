@@ -12,6 +12,7 @@ import tempfile
 
 from project_appearance import (apply_requested, current_look, resolve_look,
                                 snapshot_look, validate_appearance)
+from project_assets import prepare_assets
 
 
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{0,39}\Z")
@@ -32,6 +33,7 @@ def paths(home=None):
         "hypr": xdg("XDG_CONFIG_HOME", ".config") / "hypr/hyprland.lua",
         "shell": xdg("XDG_CONFIG_HOME", ".config") / "omarchy/shell.json",
         "plugin": xdg("XDG_CONFIG_HOME", ".config") / "omarchy/plugins/diegoeche.projects",
+        "background_plugin": xdg("XDG_CONFIG_HOME", ".config") / "omarchy/plugins/diegoeche.background",
         "data": xdg("XDG_DATA_HOME", ".local/share") / "omarchy-projects",
         "state": xdg("XDG_STATE_HOME", ".local/state") / "omarchy-projects",
         "bin": base / ".local/bin/omarchy-projects",
@@ -41,7 +43,7 @@ def paths(home=None):
 def validate(value):
     if not isinstance(value, dict) or value.get("version") != 1:
         raise ProjectError("projects.json must be an object with version 1")
-    unknown = set(value) - {"version", "projects", "monitors", "follow_focus", "workspace_transition"}
+    unknown = set(value) - {"version", "projects", "monitors", "follow_focus", "workspace_transition", "preload_wallpapers"}
     if unknown:
         raise ProjectError("unknown config keys: " + ", ".join(sorted(unknown)))
     projects = value.get("projects")
@@ -78,7 +80,13 @@ def validate(value):
     if type(follow) is not bool:
         raise ProjectError("follow_focus must be true or false")
     config = {"version": 1, "projects": result, "monitors": monitors, "follow_focus": follow}
+    if "preload_wallpapers" in value:
+        if type(value["preload_wallpapers"]) is not bool:
+            raise ProjectError("preload_wallpapers must be true or false")
+        config["preload_wallpapers"] = value["preload_wallpapers"]
     transition = value.get("workspace_transition")
+    if transition is None and config.get("preload_wallpapers"):
+        transition = {"style": "slide", "duration_ms": 200}
     if transition is not None:
         if (not isinstance(transition, dict) or set(transition) != {"style", "duration_ms"}
                 or not isinstance(transition["style"], str)
@@ -230,6 +238,9 @@ def call(method, *arguments):
 
 def reload_config(locations):
     config = load_config(locations["config"])
+    if config.get("preload_wallpapers") and not (locations["background_plugin"] / "ProjectScene.qml").is_file():
+        raise ProjectError("Run scripts/install.py once to install the preloaded background plugin")
+    prepare_assets(config, locations)
     generated = locations["state"] / "config.lua"
     previous = generated.read_text() if generated.exists() else None
     atomic_write(generated, compile_config(config, locations))

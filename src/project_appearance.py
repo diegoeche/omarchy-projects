@@ -118,7 +118,7 @@ def pause_theme_autoreload():
             set_disabled("false")
 
 
-def set_wallpaper(wallpaper, locations):
+def set_wallpaper(wallpaper, locations, managed=False):
     current = locations["home"] / ".local/state/omarchy/current"
     pending = current / (".project-background-" + str(os.getpid()))
     try:
@@ -126,17 +126,22 @@ def set_wallpaper(wallpaper, locations):
         pending.replace(current / "background")
     finally:
         pending.unlink(missing_ok=True)
-    run(["omarchy", "shell", "background", "setInstant", wallpaper])
+    if not managed:
+        run(["omarchy", "shell", "background", "setInstant", wallpaper])
 
 
-def apply_look(look, locations):
+def apply_look(look, locations, renderer=None):
     look = resolve_look(look, locations)
     previous = current_look(locations)
     try:
         if previous["wallpaper"] != look["wallpaper"]:
-            set_wallpaper(look["wallpaper"], locations)
+            set_wallpaper(look["wallpaper"], locations, managed=renderer is not None)
         if previous["theme"] != look["theme"]:
             environment = dict(os.environ, OMARCHY_THEME_SKIP_BACKGROUND="1")
+            if renderer is not None:
+                environment["OMARCHY_PROJECTS_RENDERER"] = "1"
+                environment["OMARCHY_PROJECTS_TARGET"] = renderer["project"]
+                environment["OMARCHY_PROJECTS_TEMPLATE_CACHE"] = renderer.get("cache", "")
             # Keep Omarchy's complete application retint, but apply its newly
             # generated border colors directly instead of reloading Hyprland.
             # This PATH override belongs only to this invocation and its children.
@@ -193,7 +198,13 @@ def apply_requested(locations, load_config):
             if json.loads(request_path.read_text()) != request:
                 continue
             if look is not None:
-                apply_look(look, locations)
+                if request.get("wallpaper_managed") and config.get("preload_wallpapers"):
+                    scene = json.loads((state / "scene.json").read_text())
+                    prepared = scene.get("themes", {}).get(look["theme"], {})
+                    apply_look(look, locations, renderer={"project": project["id"],
+                                                         "cache": prepared.get("cache", "")})
+                else:
+                    apply_look(look, locations)
             write_json(applied_path, desired)
             if json.loads(request_path.read_text()) == request:
                 return

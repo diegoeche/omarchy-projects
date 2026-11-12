@@ -8,9 +8,13 @@ On an Omarchy machine, `python3 tests/qml_smoke.py` additionally loads the actua
 widget and Omarchy UI components offscreen. It checks that labels exist and
 markup is rendered as plain text, without opening a desktop window.
 
+`python3 tests/scene_smoke.py` uses synthetic images in an offscreen window. It
+checks ready images, shared moving wallpaper edges, latest-destination queuing,
+and retained image sources/objects without dispatching desktop commands.
+
 ## Verified on 2026-11-12
 
-- 26 Python tests and 18 controller behavior tests passed.
+- 33 Python tests and 20 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
@@ -27,8 +31,15 @@ markup is rendered as plain text, without opening a desktop window.
   survived a complete cross-theme project switch, confirming that the compositor
   was not reloaded. The bar model's file timestamp also stayed unchanged.
   Hyprland's prior auto-reload setting was restored after the theme update.
-- The running session was locked during bar verification. A shell restart was
-  correctly refused by Omarchy; an unlocked, on-screen bar inspection is pending.
+- The optional background clone loaded in the unlocked session. Its status
+  reported all three configured images ready on two monitors. Repeated native
+  project switches kept the image-load counter unchanged, synchronized both
+  screens, and showed an intermediate animation state. The animation itself is
+  configured for 200 ms; IPC polling adds overhead to observed completion time.
+- Cross-palette native checks observed nine intermediate shell colors. Complete
+  theme-worker convergence took approximately 280–360 ms, including its debounce
+  and IPC checks. Cached templates were used; the compositor VM marker and bar
+  model timestamp stayed intact, and config auto-reload was restored afterward.
 
 ## Native desktop smoke test
 

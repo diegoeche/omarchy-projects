@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cache=${OMARCHY_PROJECTS_TEMPLATE_CACHE:-}
+if [[ -n $cache && -f $cache/.complete ]]; then
+  cp -a "$cache/." "$HOME/.local/state/omarchy/current/next-theme/"
+  # The cached files are opaque base templates. Respect the live glass toggle
+  # when copying them into Omarchy's actual staging directory.
+  exec /usr/bin/omarchy-theme-set-glass "$HOME/.local/state/omarchy/current/next-theme"
+else
+  exec /usr/bin/omarchy-theme-set-templates "$@"
+fi

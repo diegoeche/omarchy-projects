@@ -24,6 +24,8 @@ outside the configured projects remain clickable as `WS N`.
 - A small native Omarchy bar widget, using the existing shell and theme.
 - A CLI and installer using Python's standard library.
 - Optional project themes and wallpapers, applied through Omarchy's own commands.
+- An optional background clone inside the existing shell, for resident wallpapers
+  and coordinated transitions.
 
 **No package installation, third-party Python libraries, daemon, service, or
 polling loop.** Python 3, Hyprland Lua, and Quickshell are already part of a
@@ -50,7 +52,7 @@ replaces the workspace widget's bar entry with Projects, and validates Hyprland
 after reloading. Changed files are backed up; dotfile symlinks are preserved.
 If validation fails, the installation rolls back.
 
-If the bar has not rediscovered the local widget automatically, run:
+After installing or updating the shell plugins, run:
 
 ```sh
 omarchy restart shell
@@ -115,8 +117,38 @@ then run `omarchy-projects reload`:
 This uses Hyprland's native workspace animation on all participating monitors.
 `slidevert` and `fade` also work; duration can be 80–300 milliseconds. Without
 the setting, the layer leaves your existing workspace animations alone. The
-global Omarchy animation toggle still applies. The animation moves workspace
-windows; the wallpaper remains a separate shell background.
+global Omarchy animation toggle still applies.
+
+To slide wallpapers with the windows and interpolate shell colors, also add:
+
+```json
+"preload_wallpapers": true
+```
+
+Run `python3 scripts/install.py` once after enabling or disabling this option.
+It installs an Omarchy background clone and records how to restore the stock
+service. Restart the shell once, then check `omarchy-shell background projectStatus`.
+Subsequent wallpaper, theme, name, and duration edits only need
+`omarchy-projects reload`.
+
+Each distinct still image is loaded asynchronously at display-sized resolution
+and retained for each screen. Images warm before a transition is allowed to
+start; repeated switches reuse their sources and objects. The slide changes
+positions, not image files. Identical wallpapers are deduplicated by content.
+This trades additional decoded-image and texture memory for predictable switches;
+GPU memory residency still depends on Qt and the graphics driver.
+
+Palette templates are prepared during configuration reload, outside the switch
+path. Shell colors interpolate during the 200 ms slide, while Omarchy's complete
+application recoloring runs in the background. Individual applications receive
+their normal final palette; arbitrary application UIs cannot be interpolated by
+this layer. Border recoloring uses Hyprland's existing animation. Rapid input
+keeps the latest destination after the current slide. An unavailable renderer
+falls back to normal keyboard navigation.
+
+Preloaded project motion supports still wallpapers. Without this option, normal
+Omarchy backgrounds, including videos, keep their standard behavior. Aether and
+manual wallpaper previews remain available through the cloned stock renderer.
 
 ## Shortcuts
 
@@ -198,7 +230,8 @@ Theme slugs must name installed Omarchy themes; wallpapers are local files.
 Profiles are independent even when they initially use the same theme. Projects
 without an appearance setting leave the current look in place.
 
-Workspace navigation remains immediate. Appearance changes are debounced and
+Workspace navigation uses the compositor directly, or the prepared shell scene
+when preloading is enabled. Appearance changes are debounced and
 serialized, with rapid switching converging on the latest project. Switching
 between projects with the same palette only changes the wallpaper. Failed
 background/theme commands are recorded in
@@ -271,4 +304,5 @@ installation/removal. Native desktop verification is documented in [QA.md](QA.md
 
 MIT licensed. Inspired by the linked-workspace workflows discussed in
 [Omarchy discussion #8785](https://github.com/omacom/omarchy/discussions/8785).
-Implementation is original and uses Omarchy's current helper API.
+Uses Omarchy's current helper API. The optional background service adapts its
+stock renderer; see [third-party notices](THIRD_PARTY_NOTICES.md).

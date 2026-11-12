@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${OMARCHY_PROJECTS_RENDERER:-} == 1 && ${1:-} == shell && ${2:-} == applyTheme ]]; then
+  exec /usr/bin/omarchy-shell background projectPalette "$OMARCHY_PROJECTS_TARGET" "${3:-}" "${4:-}"
+fi
+exec /usr/bin/omarchy-shell "$@"

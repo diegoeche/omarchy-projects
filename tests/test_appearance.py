@@ -157,6 +157,30 @@ class AppearanceTests(unittest.TestCase):
                 pass
         self.assertEqual(run.call_count, 1)
 
+    def test_managed_wallpaper_only_updates_link_without_resetting_renderer(self):
+        other = self.source.with_name('other.png')
+        other.write_bytes(b'fixture')
+        with patch.object(appearance, 'run') as run:
+            appearance.apply_look({'theme': 'old-theme', 'wallpaper': str(other)}, self.locations,
+                                  renderer={'project': 'atlas', 'cache': '/fixture'})
+        run.assert_not_called()
+        self.assertEqual((self.current / 'background').resolve(), other)
+
+    def test_managed_theme_forwards_prepared_cache_and_full_application_retint(self):
+        def run(command, **kwargs):
+            if '-j' in command:
+                return '{"bool":true}'
+            if command[:3] == ['omarchy', 'theme', 'set']:
+                (self.current / 'theme.name').write_text(command[3])
+            return 'ok\n'
+        with patch.object(appearance, 'run', side_effect=run) as calls:
+            appearance.apply_look({'theme': 'new-theme', 'wallpaper': str(self.source)}, self.locations,
+                                  renderer={'project': 'atlas', 'cache': '/fixture'})
+        theme = next(call for call in calls.call_args_list if call.args[0][:3] == ['omarchy', 'theme', 'set'])
+        self.assertEqual(theme.kwargs['env']['OMARCHY_PROJECTS_TEMPLATE_CACHE'], '/fixture')
+        self.assertEqual(theme.kwargs['env']['OMARCHY_PROJECTS_TARGET'], 'atlas')
+        self.assertEqual(theme.kwargs['env']['OMARCHY_PROJECTS_RENDERER'], '1')
+
 
 if __name__ == '__main__':
     unittest.main()

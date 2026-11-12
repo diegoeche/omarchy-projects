@@ -6,6 +6,8 @@ local busy, settling, generation = false, false, 0
 local selected, previous = nil, nil
 local appearance_project, appearance_generation = nil, 0
 local published_view = nil
+local renderer_connected = false
+local renderer_generation = 0
 
 local function json_string(value)
   return '"' .. tostring(value):gsub('[%z\1-\31\\"]', function(char)
@@ -23,7 +25,8 @@ function M.request_appearance(project)
   if not config.appearance_request_file or not config.appearance_command or appearance_project == project.id then return end
   local path = config.appearance_request_file
   local file = assert(io.open(path .. '.tmp', 'w'))
-  file:write('{"project":' .. json_string(project.id) .. '}\n')
+  file:write('{"project":' .. json_string(project.id) .. ',"wallpaper_managed":'
+    .. (renderer_connected and 'true' or 'false') .. '}\n')
   file:close()
   assert(os.rename(path .. '.tmp', path))
   appearance_project = project.id
@@ -116,7 +119,37 @@ local function synchronized(project)
   return true
 end
 
+function M.renderer_ready(value)
+  if renderer_connected ~= (value == true) then appearance_project = nil end
+  renderer_connected = value == true
+  local project = M.current()
+  if project then M.request_appearance(project) end
+end
+
+local function forward_to_renderer(shortcut, fallback)
+  renderer_generation = renderer_generation + 1
+  local pending = renderer_generation
+  hl.dispatch(hl.dsp.global('omarchy-projects:' .. shortcut))
+  hl.timer(function()
+    if renderer_generation ~= pending then return end
+    -- A shell crash cannot strand the compositor's keyboard navigation.
+    renderer_connected = false
+    appearance_project = nil
+    fallback()
+  end, { type = 'oneshot', timeout = 1000 })
+end
+
 function M.show(id)
+  local project = project_for(id)
+  if config.preload_wallpapers and renderer_connected then
+    forward_to_renderer('show-' .. project.slot, function() M.commit(project.id) end)
+    return true
+  end
+  return M.commit(id)
+end
+
+function M.commit(id)
+  renderer_generation = renderer_generation + 1
   local project = project_for(id)
   local monitors = M.monitors()
   if #monitors == 0 then return false end
@@ -162,6 +195,10 @@ function M.show(id)
 end
 
 function M.step(direction)
+  if config.preload_wallpapers and renderer_connected then
+    forward_to_renderer(direction > 0 and 'next' or 'prev', function() M.step(direction) end)
+    return true
+  end
   local current = M.current() or selected
   local index = direction > 0 and 0 or 1
   for position, project in ipairs(config.projects) do
@@ -210,7 +247,8 @@ end
 
 -- Function-valued expressions keep Omarchy's keybinding menu functional.
 function M.action(method, ...)
-  assert(method == 'show' or method == 'move' or method == 'step' or method == 'back'
+  assert(method == 'show' or method == 'commit' or method == 'renderer_ready'
+    or method == 'move' or method == 'step' or method == 'back'
     or method == 'move_monitor', 'Invalid action')
   local args = {...}
   local callback = function() return M[method](table.unpack(args)) end
@@ -249,6 +287,8 @@ function M.setup(settings)
   config, by_id, by_slot = settings, {}, {}
   busy, settling, selected, previous = false, false, nil, nil
   appearance_project = nil
+  renderer_connected = false
+  renderer_generation = renderer_generation + 1
   published_view = nil
   if config.state_file then
     local file = io.open(config.state_file, 'r')
@@ -262,7 +302,7 @@ function M.setup(settings)
   if config.workspace_transition then
     hl.animation({ leaf = 'workspaces', enabled = true,
       speed = config.workspace_transition.duration_ms / 100,
-      bezier = 'default', style = config.workspace_transition.style })
+      bezier = 'easeOutQuint', style = config.workspace_transition.style })
   end
   if settings.bindings ~= false then M.bindings() end
   local function topology_changed()
@@ -286,10 +326,16 @@ function M.setup(settings)
       if pending ~= generation or settling then return end
       local project = M.current()
       if project then
+        local changed = selected ~= project
         if selected and selected ~= project then previous = selected end
         selected = project
         if config.follow_focus and not synchronized(project) then M.show(project.id)
-        else M.request_appearance(project) end
+        else
+          if renderer_connected and changed then
+            hl.dispatch(hl.dsp.global('omarchy-projects:look-' .. project.slot))
+          end
+          M.request_appearance(project)
+        end
       end
     end, { type = 'oneshot', timeout = 40 })
   end)
