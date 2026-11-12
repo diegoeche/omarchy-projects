@@ -30,6 +30,17 @@ Item {
     return false
   }
 
+  function snapshot() {
+    var result = {width: width, height: height, from: null, to: null}
+    for (var i = 0; i < frames.count; i++) {
+      var frame = frames.itemAt(i)
+      if (!frame) continue
+      if (frame.modelData.key === scene.fromAsset) result.from = {x: frame.x, y: frame.y}
+      if (frame.modelData.key === scene.toAsset) result.to = {x: frame.x, y: frame.y}
+    }
+    return result
+  }
+
   function rememberCurrent() {
     for (var i = 0; i < scene.assets.length; i++) {
       if (scene.assets[i].key === scene.toAsset) { heldAsset = scene.assets[i]; return }

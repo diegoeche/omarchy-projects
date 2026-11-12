@@ -20,7 +20,7 @@ def png(red, green, blue):
             + chunk(b'IDAT', zlib.compress((b'\0' + bytes([red, green, blue]) * 16) * 16)) + chunk(b'IEND', b''))
 
 
-def main():
+def main(style):
     with tempfile.TemporaryDirectory(prefix='omarchy-projects-scene-') as temporary:
         target = Path(temporary)
         for name in ('Commons', 'Ui'):
@@ -39,7 +39,7 @@ def main():
             projects.append({'id': name, 'slot': index + 1, 'asset': key,
                              'colors': 'foreground = "#ffffff"\nbackground = "#111111"\n',
                              'shell': '[bar]\nbackground = "#111111"\n'})
-        (state / 'scene.json').write_text(json.dumps({'version': 1, 'duration': 200, 'style': 'slide',
+        (state / 'scene.json').write_text(json.dumps({'version': 1, 'duration': 200, 'style': style,
                                                      'projects': projects, 'assets': assets}))
         (state / 'view.json').write_text('{"monitors":[]}')
         (target / 'shell.qml').write_text('''import QtQuick
@@ -53,6 +53,7 @@ Window {
   property int ticks: 0
   property int loads: 0
   property bool sawMidpoint: false
+  property bool checkedRefresh: false
   property var original: []
   Background.ProjectScene { id: scene; panels: [{projectWallpapers: wallpapers}]; live: false }
   Background.ProjectWallpapers { id: wallpapers; anchors.fill: parent; scene: scene; display: null }
@@ -62,8 +63,18 @@ Window {
       if (++host.ticks > 500) { console.error("Timed out waiting for preloaded scene: " + scene.status()); Qt.quit(); return }
       if (host.stage === 1 && scene.currentProject === "boreal" && scene.progress > 0.05 && scene.progress < 0.95) {
         var a = wallpapers.images.itemAt(0), b = wallpapers.images.itemAt(1)
-        if (!(a.x < 0 && b.x > 0 && Math.abs(b.x - a.x - 320) < 0.01)) {
+        var vertical = scene.style === "slidevert"
+        var from = vertical ? a.y : a.x, to = vertical ? b.y : b.x
+        if (!(from < 0 && to > 0 && Math.abs(to - from - (vertical ? 200 : 320)) < 0.01)) {
           console.error("Wallpaper planes do not share a moving edge"); Qt.quit(); return
+        }
+        if (vertical && (a.x !== 0 || b.x !== 0)) throw new Error("Vertical motion moved horizontally")
+        if (!host.checkedRefresh) {
+          if (!scene.manualBackground(scene.manifest.assets[0].path) || !scene.moving || !scene.active)
+            throw new Error("A stale project background disabled or interrupted motion")
+          if (!scene.manualBackground(scene.manifest.assets[1].path) || !scene.moving || !scene.active)
+            throw new Error("Refreshing the current project disabled motion")
+          host.checkedRefresh = true
         }
         host.sawMidpoint = true
       }
@@ -80,10 +91,14 @@ Window {
         scene.request("atlas")
         scene.request("personal")
       } else if (host.stage === 1 && scene.currentProject === "personal" && !scene.moving) {
-        if (!host.sawMidpoint) throw new Error("No intermediate wallpaper frame")
+        if (!host.sawMidpoint || !host.checkedRefresh) throw new Error("No intermediate wallpaper frame")
         if (wallpapers.loadEvents !== host.loads) throw new Error("Images reloaded during navigation")
         for (var j=0;j<3;j++) if (host.original[j] !== wallpapers.images.itemAt(j))
           throw new Error("Image objects recreated during navigation")
+        if (scene.manualBackground("/tmp/unconfigured-aether-preview.png") || scene.active || !scene.manualOverride)
+          throw new Error("An explicit wallpaper preview was blocked")
+        scene.reconnect()
+        if (scene.active) throw new Error("Reconnection discarded a manual wallpaper preview")
         console.log("PROJECT_SCENE_PASS " + scene.status())
         Qt.quit()
       }
@@ -101,8 +116,9 @@ Window {
         output = result.stdout + result.stderr
         if result.returncode or 'PROJECT_SCENE_PASS' not in output:
             raise SystemExit(output)
-        print('PASS native QML: resident images, moving edges, and latest destination')
+        print('PASS native QML: ' + style + ', resident images, project refreshes, and latest destination')
 
 
 if __name__ == '__main__':
-    main()
+    for style in ('slide', 'slidevert'):
+        main(style)

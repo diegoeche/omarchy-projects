@@ -2,6 +2,8 @@
 
 **One project name. One shortcut. Every monitor switches together.**
 
+Development is hosted on Gitea; GitHub is the public mirror.
+
 A small layer over Omarchy 4.5's existing per-monitor workspaces. Each project
 uses the same local slot on every participating monitor. `Super+2` brings up
 Boreal on both displays; moving a window to Atlas keeps it on its physical screen.
@@ -118,6 +120,20 @@ This uses Hyprland's native workspace animation on all participating monitors.
 `slidevert` and `fade` also work; duration can be 80–300 milliseconds. Without
 the setting, the layer leaves your existing workspace animations alone. The
 global Omarchy animation toggle still applies.
+
+Choose the scroll direction from the CLI, or right-click a project and select
+**Scroll vertically on all screens** / **Scroll horizontally on all screens**:
+
+```sh
+omarchy-projects transition vertical
+omarchy-projects transition horizontal
+omarchy-projects transition vertical --duration-ms 200
+omarchy-projects transition          # show the current setting
+```
+
+The choice applies to windows and wallpapers together. It survives compositor
+and shell restarts. The existing JSON styles `slide` (horizontal), `slidevert`
+(vertical), and `fade` remain supported.
 
 To slide wallpapers with the windows and interpolate shell colors, also add:
 

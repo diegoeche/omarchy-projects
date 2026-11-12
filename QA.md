@@ -10,11 +10,13 @@ markup is rendered as plain text, without opening a desktop window.
 
 `python3 tests/scene_smoke.py` uses synthetic images in an offscreen window. It
 checks ready images, shared moving wallpaper edges, latest-destination queuing,
-and retained image sources/objects without dispatching desktop commands.
+and retained image sources/objects without dispatching desktop commands. It
+covers horizontal and vertical scrolling, delayed project refreshes during
+motion, and preserving an explicit manual wallpaper preview.
 
 ## Verified on 2026-11-12
 
-- 33 Python tests and 20 controller behavior tests passed.
+- 35 Python tests and 21 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
@@ -40,6 +42,11 @@ and retained image sources/objects without dispatching desktop commands.
   theme-worker convergence took approximately 280–360 ms, including its debounce
   and IPC checks. Cached templates were used; the compositor VM marker and bar
   model timestamp stayed intact, and config auto-reload was restored afterward.
+- A regression check reloaded Hyprland before each of three project switches,
+  then sent a stale background refresh during each slide. Both displays retained
+  vertical movement with zero horizontal displacement, shared incoming/outgoing
+  edges, unchanged image-load counts, and an active project renderer. Every
+  switch recovered its renderer connection and kept managed wallpaper requests.
 
 ## Native desktop smoke test
 

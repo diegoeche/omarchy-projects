@@ -189,6 +189,15 @@ def save_config_change(config, locations):
         raise
 
 
+def set_transition(config, locations, direction, duration=None):
+    styles = {"horizontal": "slide", "vertical": "slidevert", "fade": "fade"}
+    config["workspace_transition"] = {"style": styles[direction],
+        "duration_ms": duration if duration is not None else config.get("workspace_transition", {}).get("duration_ms", 200)}
+    config = validate(config)
+    save_config_change(config, locations)
+    print("Workspace transition: " + direction + " (" + str(config["workspace_transition"]["duration_ms"]) + " ms)")
+
+
 def appearance_command(args, config, locations):
     if args.appearance_action == "apply":
         apply_requested(locations, load_config)
@@ -197,12 +206,16 @@ def appearance_command(args, config, locations):
     if args.appearance_action == "menu":
         call("show", project["id"])
         apply_requested(locations, load_config)
-        choices = ["Open Aether", "Save current theme and wallpaper"]
+        choices = ["Open Aether", "Save current theme and wallpaper",
+                   "Scroll vertically on all screens", "Scroll horizontally on all screens"]
         result = subprocess.run(["omarchy", "menu", "select", "Project appearance", *choices],
                                 capture_output=True, text=True)
         if result.returncode:
             return
         choice = result.stdout.strip()
+        if choice in choices[2:]:
+            set_transition(config, locations, "vertical" if choice == choices[2] else "horizontal")
+            return
         if choice == choices[0]:
             subprocess.Popen(["aether"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
@@ -271,6 +284,9 @@ def main(argv=None):
             command.add_argument("--silent", action="store_true", help="keep the current project visible")
     for name in ("next", "prev", "back", "reload"):
         commands.add_parser(name)
+    transition = commands.add_parser("transition", help="choose vertical or horizontal workspace scrolling")
+    transition.add_argument("direction", nargs="?", choices=["horizontal", "vertical", "fade"])
+    transition.add_argument("--duration-ms", type=int, help="animation duration, 80–300 milliseconds")
     monitor = commands.add_parser("monitor", help="move the active window to a neighboring screen in the same project")
     monitor.add_argument("direction", choices=["l", "r", "u", "d"])
     appearance = commands.add_parser("appearance", help="configure each project's theme and wallpaper")
@@ -288,7 +304,14 @@ def main(argv=None):
         if args.config and args.command not in {"list", "check"}:
             raise ProjectError("--config is only supported by list and check; install to activate a config")
         config = load_config(args.config or locations["config"])
-        if args.command == "appearance":
+        if args.command == "transition":
+            current = config.get("workspace_transition", {"style": "slide", "duration_ms": 200})
+            direction = args.direction or {"slide": "horizontal", "slidevert": "vertical", "fade": "fade"}[current["style"]]
+            if args.direction or args.duration_ms is not None:
+                set_transition(config, locations, direction, args.duration_ms)
+            else:
+                print("Workspace transition: " + direction + " (" + str(current["duration_ms"]) + " ms)")
+        elif args.command == "appearance":
             appearance_command(args, config, locations)
         elif args.command == "list":
             for project in config["projects"]:

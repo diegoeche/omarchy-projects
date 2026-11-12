@@ -107,7 +107,7 @@ Item {
   }
 
   function transitionBackground(fromPath, path, finalPath, instant, force) {
-    projectScene.manualBackground(finalPath || path)
+    if (projectScene.manualBackground(finalPath || path)) return
     path = String(path || "").trim()
     finalPath = String(finalPath || path).trim()
     fromPath = String(fromPath || "").trim()

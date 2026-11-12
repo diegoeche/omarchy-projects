@@ -2,6 +2,10 @@
 
 Keep this a small customization layer for Omarchy 4.5+, not another desktop shell.
 
+- Gitea is the primary repository (`origin`). GitHub (`github`) is its public
+  push mirror. Push development commits to `origin`; do not push directly to
+  GitHub unless the user explicitly requests it.
+
 - Runtime dependencies are limited to software already shipped with Omarchy:
   Hyprland Lua, Quickshell, and Python's standard library. Do not add packages.
 - Keep Omarchy's workspace controller and monitor identity mapping intact. Never

@@ -141,15 +141,19 @@ end
 
 function M.show(id)
   local project = project_for(id)
-  if config.preload_wallpapers and renderer_connected then
+  if config.preload_wallpapers and renderer_connected ~= false then
     forward_to_renderer('show-' .. project.slot, function() M.commit(project.id) end)
     return true
   end
   return M.commit(id)
 end
 
-function M.commit(id)
+function M.commit(id, managed)
   renderer_generation = renderer_generation + 1
+  if type(managed) == 'boolean' and managed ~= renderer_connected then
+    renderer_connected = managed
+    appearance_project = nil
+  end
   local project = project_for(id)
   local monitors = M.monitors()
   if #monitors == 0 then return false end
@@ -195,7 +199,7 @@ function M.commit(id)
 end
 
 function M.step(direction)
-  if config.preload_wallpapers and renderer_connected then
+  if config.preload_wallpapers and renderer_connected ~= false then
     forward_to_renderer(direction > 0 and 'next' or 'prev', function() M.step(direction) end)
     return true
   end
@@ -287,7 +291,7 @@ function M.setup(settings)
   config, by_id, by_slot = settings, {}, {}
   busy, settling, selected, previous = false, false, nil, nil
   appearance_project = nil
-  renderer_connected = false
+  if config.preload_wallpapers then renderer_connected = nil else renderer_connected = false end
   renderer_generation = renderer_generation + 1
   published_view = nil
   if config.state_file then
@@ -349,7 +353,16 @@ function M.setup(settings)
     end
   end
   M.publish()
-  if selected then M.request_appearance(selected) end
+  if config.preload_wallpapers then
+    -- Compositor reloads reset Lua while the shell stays alive. Reconnect over
+    -- the existing global-shortcut protocol; it has no process or disk work.
+    hl.timer(function()
+      hl.dispatch(hl.dsp.global('omarchy-projects:connect'))
+    end, { type = 'oneshot', timeout = 20 })
+    hl.timer(function()
+      if renderer_connected == nil then M.renderer_ready(false) end
+    end, { type = 'oneshot', timeout = 1000 })
+  elseif selected then M.request_appearance(selected) end
   return M
 end
 

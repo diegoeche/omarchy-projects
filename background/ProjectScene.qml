@@ -26,6 +26,7 @@ Item {
   property real progress: 1
   property bool active: false
   property bool initialized: false
+  property bool manualOverride: false
   property var palette: null
   property string finalColors: ""
   property string finalShell: ""
@@ -46,12 +47,21 @@ Item {
     }
     return ""
   }
-  function dispatch(method, id) {
+  function dispatch(method, id, managed) {
     lastDispatch = "omarchy_projects.action(" + JSON.stringify(method)
-      + (id === undefined ? "" : "," + JSON.stringify(id)) + ")"
+      + (id === undefined ? "" : "," + JSON.stringify(id))
+      + (managed === undefined ? "" : "," + JSON.stringify(managed)) + ")"
     if (live) Hyprland.dispatch(lastDispatch)
   }
   function announce() { if (live && manifest.projects.length) dispatch("renderer_ready", true) }
+  function reconnect() {
+    var actual = focusedProject()
+    if (actual && actual !== currentProject && !moving) {
+      initialized = false
+      checkReady()
+    }
+    announce()
+  }
   function readyFor(key) {
     if (panels.length === 0) return false
     for (var i = 0; i < panels.length; i++) {
@@ -78,13 +88,13 @@ Item {
   function request(id, commit) {
     commit = commit !== false
     var target = project(id)
-    if (!target) { active = false; if (commit) dispatch("commit", id); return }
+    if (!target) { active = false; if (commit) dispatch("commit", id, true); return }
     if (moving) { queuedProject = id; queuedCommit = commit; return }
-    if (id === currentProject) { if (commit) dispatch("commit", id); return }
+    if (id === currentProject) { if (commit) dispatch("commit", id, true); return }
     if (!target.asset) {
       previousProject = currentProject
       currentProject = id
-      if (commit) dispatch("commit", id)
+      if (commit) dispatch("commit", id, true)
       return
     }
     pendingProject = id
@@ -107,6 +117,7 @@ Item {
     fromAsset = toAsset || target.asset
     toAsset = target.asset
     active = true
+    manualOverride = false
     finalColors = target.colors
     finalShell = target.shell
     var source = {}
@@ -116,7 +127,7 @@ Item {
     palette = Motion.palettePlan(source, Commons.Color.shellValues, targetBase, shell)
     progress = 0
     motion.start()
-    if (pendingCommit) dispatch("commit", target.id)
+    if (pendingCommit) dispatch("commit", target.id, true)
   }
   function applyPalette() {
     if (!palette) return
@@ -148,22 +159,39 @@ Item {
     }
   }
   function manualBackground(path) {
+    var actual = project(focusedProject() || currentProject)
     for (var i = 0; i < assets.length; i++) {
-      if (assets[i].key === toAsset && assets[i].path === path) return
+      if (assets[i].path !== path) continue
+      if (!initialized) return false
+      // A delayed project worker or a shell refresh is still a project
+      // wallpaper. It must not turn the resident scene into a static image.
+      if (actual && actual.asset === assets[i].key) {
+        if (actual.id !== currentProject) request(actual.id, false)
+        else { active = true; manualOverride = false }
+      }
+      announce()
+      return true
     }
     motion.stop()
     palette = null
     pendingProject = queuedProject = ""
     active = false
+    manualOverride = true
+    return false
   }
   function status() {
     var ready = []
     for (var i = 0; i < assets.length; i++) if (readyFor(assets[i].key)) ready.push(assets[i].key)
     var loads = 0
-    for (var p = 0; p < panels.length; p++) loads += panels[p].projectWallpapers.loadEvents
+    var screens = []
+    for (var p = 0; p < panels.length; p++) {
+      loads += panels[p].projectWallpapers.loadEvents
+      screens.push(panels[p].projectWallpapers.snapshot())
+    }
     return JSON.stringify({ current: currentProject, moving: moving, loaded: ready.length, imageLoads: loads,
       uniqueWallpapers: assets.length, active: active,
-      color: String(Commons.Color.background), progress: progress })
+      color: String(Commons.Color.background), progress: progress,
+      style: style, workspace: focusedProject(), manualOverride: manualOverride, screens: screens })
   }
   onProgressChanged: applyPalette()
   onPendingProjectChanged: { if (pendingProject) readinessTimeout.restart() }
@@ -177,7 +205,7 @@ Item {
       root.pendingProject = ""
       root.active = false
       root.dispatch("renderer_ready", false)
-      if (root.pendingCommit) root.dispatch("commit", id)
+      if (root.pendingCommit) root.dispatch("commit", id, false)
       console.warn("Project wallpaper could not be prepared; using normal workspace switching")
     }
   }
@@ -206,7 +234,7 @@ Item {
         root.progress = 1
         root.manifest = data
         root.initialized = false
-        Qt.callLater(root.announce)
+        Qt.callLater(root.reconnect)
         Qt.callLater(root.checkReady)
       } catch (error) { console.warn("Project wallpaper manifest unavailable") }
     }
@@ -235,12 +263,13 @@ Item {
     }
   }
   Variants {
-    model: root.live ? ["next", "prev", "back"] : []
+    model: root.live ? ["next", "prev", "back", "connect"] : []
     GlobalShortcut {
       required property string modelData
       appid: "omarchy-projects"; name: modelData
       onPressed: {
-        if (modelData === "next") root.step(1)
+        if (modelData === "connect") root.reconnect()
+        else if (modelData === "next") root.step(1)
         else if (modelData === "prev") root.step(-1)
         else root.request(root.previousProject || root.currentProject)
       }
@@ -248,6 +277,6 @@ Item {
   }
   Connections {
     target: Hyprland
-    function onRawEvent(event) { if (event.name === "configreloaded") Qt.callLater(root.announce) }
+    function onRawEvent(event) { if (event.name === "configreloaded") Qt.callLater(root.reconnect) }
   }
 }

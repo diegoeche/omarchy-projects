@@ -89,6 +89,34 @@ class ConfigTests(unittest.TestCase):
                     project.reload_config(locations)
             self.assertEqual(compiled.read_text(), "return {previous=true}\n")
 
+    def test_transition_command_switches_axes_and_keeps_duration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            locations = project.paths(temp)
+            locations['config'].parent.mkdir(parents=True)
+            locations['config'].write_text(json.dumps(self.config))
+            with patch.object(project, 'paths', return_value=locations), patch.object(project, 'reload_config') as reload:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(project.main(['transition', 'vertical', '--duration-ms', '150']), 0)
+                    self.assertEqual(project.load_config(locations['config'])['workspace_transition'],
+                                     {'style': 'slidevert', 'duration_ms': 150})
+                    self.assertEqual(project.main(['transition', 'horizontal']), 0)
+                saved = project.load_config(locations['config'])
+                self.assertEqual(saved['workspace_transition'], {'style': 'slide', 'duration_ms': 150})
+                self.assertEqual(saved['projects'], self.config['projects'])
+                self.assertEqual(reload.call_count, 2)
+
+    def test_invalid_transition_duration_does_not_change_config(self):
+        with tempfile.TemporaryDirectory() as temp:
+            locations = project.paths(temp)
+            locations['config'].parent.mkdir(parents=True)
+            original = json.dumps(self.config)
+            locations['config'].write_text(original)
+            with patch.object(project, 'paths', return_value=locations), patch.object(project, 'reload_config') as reload:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(project.main(['transition', 'vertical', '--duration-ms', '900']), 1)
+                reload.assert_not_called()
+                self.assertEqual(locations['config'].read_text(), original)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -345,5 +345,30 @@ test('external focus without follow synchronizes appearance without moving other
   equal(calls[#calls].name, 'omarchy-projects:look-3')
 end)
 
+test('a compositor reload keeps immediate switches routed through the resident renderer', function()
+  local file = os.tmpname()
+  local controller, _, config = fixture({ preload_wallpapers = true,
+    appearance_request_file = file, appearance_command = 'worker' })
+  controller.renderer_ready(true)
+  controller.commit('boreal', true)
+  events, timers = {}, {}
+  controller = dofile('hypr/controller.lua').setup(config)
+  controller.show('personal') -- before the reconnect timer runs
+  equal(calls[#calls].name, 'omarchy-projects:show-7')
+  equal(controller.current().id, 'boreal')
+  controller.commit('personal', true)
+  flush()
+  equal(controller.current().id, 'personal')
+  local stream = assert(io.open(file))
+  equal(stream:read('*a'), '{"project":"personal","wallpaper_managed":true}\n')
+  stream:close()
+  local connected = false
+  for _, call in ipairs(calls) do
+    if call.name == 'omarchy-projects:connect' then connected = true end
+  end
+  assert(connected, 'reload did not ask the shell to reconnect')
+  os.remove(file)
+end)
+
 print(string.format('%d passed, %d failed', passes, failures))
 os.exit(failures > 0 and 1 or 0)
