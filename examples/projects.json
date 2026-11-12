@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "projects": [
+    { "id": "atlas", "name": "Atlas", "slot": 1 },
+    { "id": "boreal", "name": "Boreal", "slot": 2 },
+    { "id": "personal", "name": "Personal", "slot": 3 }
+  ],
+  "monitors": [],
+  "follow_focus": true
+}
+

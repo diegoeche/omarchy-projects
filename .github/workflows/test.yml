@@ -1,0 +1,19 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test interpreter
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Check controller syntax
+        run: luac -p hypr/controller.lua
+      - name: Test configuration and installation
+        run: python3 -m unittest discover -s tests -v
+      - name: Test workspace behavior
+        run: lua tests/controller_test.lua
+      - name: Check whitespace
+        run: git diff --check

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "diegoeche.projects",
+  "name": "Projects",
+  "version": "0.1.0",
+  "author": "Diego Echeverri",
+  "description": "Named projects across your monitors",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Projects.qml" },
+  "barWidget": {
+    "displayName": "Projects",
+    "description": "Switch every monitor to a named project",
+    "category": "Compositor",
+    "allowMultiple": false
+  }
+}
