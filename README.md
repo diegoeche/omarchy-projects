@@ -107,15 +107,16 @@ The layer asks Omarchy for the mapping rather than assuming those numbers.
 Changing a slot assigns that name to a different existing workspace; it does
 not migrate windows. Keep slots stable and change names freely.
 
-### Text and favicon labels
+### Text, favicon, and emoji labels
 
-Project labels can show their name, a local image, or both:
+Project labels can show their name, a local image or emoji, or both:
 
 ```sh
 omarchy-projects icon atlas ~/Pictures/atlas.png       # favicon-only
-omarchy-projects icon atlas --label both              # image + name
+omarchy-projects icon atlas --emoji "🌻"               # emoji-only
+omarchy-projects icon atlas --label both              # symbol + name
 omarchy-projects icon atlas --label text              # name only
-omarchy-projects icon atlas --clear                   # remove icon setting
+omarchy-projects icon atlas --clear                   # return to the name
 ```
 
 The image is copied into the local project data directory. PNG, SVG, ICO, JPEG,
@@ -128,6 +129,12 @@ icon without an explicit label mode defaults to `both`. A missing or unreadable
 image falls back to the project name. Icon-only labels retain their name in the
 hover tooltip and accessibility label, and show a dot when active. Project IDs,
 workspace slots, and shortcuts keep their existing behavior.
+
+For emoji labels, configure `"emoji": "🔥"` instead of an image path. The
+`icon` and `emoji` fields are mutually exclusive; the CLI switches between them
+automatically. Unicode emoji sequences, including variation selectors and
+joined emoji, are supported through the system emoji font. They need no image
+file and keep the same name tooltip and active indicator.
 
 ### Workspace transitions
 

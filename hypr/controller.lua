@@ -82,6 +82,7 @@ function M.publish()
     projects[#projects + 1] = '{"id":' .. json_string(project.id)
       .. ',"name":' .. json_string(project.name) .. ',"slot":' .. project.slot
       .. (project.icon and ',"icon":' .. json_string(project.icon) or '')
+      .. (project.emoji and ',"emoji":' .. json_string(project.emoji) or '')
       .. (project.label and ',"label":' .. json_string(project.label) or '') .. '}'
   end
   for _, monitor in ipairs(M.monitors()) do

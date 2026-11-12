@@ -323,6 +323,8 @@ test('published names round trip as JSON data, including markup', function()
   config.projects[1].name = 'München " <img src="https://invalid.test/x">'
   config.projects[1].icon = '/tmp/quoted " icon.svg'
   config.projects[1].label = 'icon'
+  config.projects[2].emoji = '💾'
+  config.projects[2].label = 'icon'
   controller.publish()
   local stream = assert(io.open(file))
   local output = stream:read('*a')
@@ -331,6 +333,7 @@ test('published names round trip as JSON data, including markup', function()
   assert(output:find('"boreal":43', 1, true))
   assert(output:find('"icon":"/tmp/quoted \\" icon.svg"', 1, true))
   assert(output:find('"label":"icon"', 1, true))
+  assert(output:find('"emoji":"💾"', 1, true))
   os.remove(file)
 end)
 

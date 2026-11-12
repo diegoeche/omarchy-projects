@@ -65,8 +65,33 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(cleared['name'], 'Atlas')
                 self.assertEqual(cleared['slot'], 1)
 
+    def test_emoji_labels_support_unicode_sequences_and_reject_invalid_values(self):
+        row = dict(self.config['projects'][0], label='icon')
+        for emoji in ('🌻', '💾', '🔥', '👩‍💻', '🇧🇷', '⚙️', '👍🏽'):
+            value = dict(self.config, projects=[dict(row, emoji=emoji)])
+            self.assertEqual(project.validate(value)['projects'][0]['emoji'], emoji)
+        for emoji in ('', '🔥 🔥', '\n', 'x'*17, None, '\ud800'):
+            with self.subTest(emoji=repr(emoji)), self.assertRaises(project.ProjectError):
+                project.validate(dict(self.config, projects=[dict(row, emoji=emoji)]))
+        with self.assertRaises(project.ProjectError):
+            project.validate(dict(self.config, projects=[dict(row, emoji='🌻', icon='/tmp/a.png')]))
+
+    def test_emoji_cli_sets_the_label_and_can_clear_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            locations = project.paths(temporary)
+            locations['config'].parent.mkdir(parents=True)
+            locations['config'].write_text(json.dumps(self.config))
+            with patch.object(project, 'paths', return_value=locations), patch.object(project, 'reload_config'), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(project.main(['icon', 'atlas', '--emoji', '🌻']), 0)
+                row = project.load_config(locations['config'])['projects'][0]
+                self.assertEqual((row['emoji'], row['label']), ('🌻', 'icon'))
+                self.assertEqual(project.main(['icon', 'atlas', '--label', 'both']), 0)
+                self.assertEqual(project.load_config(locations['config'])['projects'][0]['label'], 'both')
+                self.assertEqual(project.main(['icon', 'atlas', '--clear']), 0)
+                self.assertEqual(project.load_config(locations['config'])['projects'][0], self.config['projects'][0])
+
     def test_lua_serialization_round_trip(self):
-        value = 'München " \\ \n123 <img src="https://invalid.test/x"> $(touch /tmp/not-a-command)'
+        value = 'München 🌻💾🔥 " \\ \n123 <img src="https://invalid.test/x"> $(touch /tmp/not-a-command)'
         script = "io.write(" + project.lua(value) + ")"
         result = subprocess.run(["lua", "-"], input=script, capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout, value)

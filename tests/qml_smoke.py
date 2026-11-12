@@ -32,6 +32,8 @@ def main():
                 {"id": "missing", "name": "Missing icon", "slot": 4, "icon": str(target / 'missing.svg'), "label": "icon"},
                 {"id": "remote", "name": "Blocked remote", "slot": 5, "icon": "https://invalid.test/icon.png", "label": "icon"},
                 {"id": "tooltip", "name": '<img src="https://invalid.test/x">', "slot": 6, "icon": str(icon), "label": "icon"},
+                {"id": "sunflower", "name": "Sunflower", "slot": 7, "emoji": "🌻", "label": "icon"},
+                {"id": "composed", "name": "Composed", "slot": 8, "emoji": "👩‍💻", "label": "both"},
             ], "monitors": [],
         }))
         (target / "shell.qml").write_text('''import QtQuick
@@ -64,6 +66,11 @@ Scope {
         throw new Error("An untrusted icon URL reached the image loader")
       var tooltip = objects["project-icon-tooltip"].parent.parent.tooltipText
       if (tooltip !== '<img src="https://invalid.test/x">') throw new Error("Icon-only tooltip lost its literal name")
+      if (!objects["project-emoji-sunflower"].visible || objects["project-emoji-sunflower"].text !== "🌻"
+          || objects["project-label-sunflower"].visible || String(objects["project-icon-sunflower"].source) !== "")
+        throw new Error("Emoji-only label failed")
+      if (!objects["project-emoji-composed"].visible || !objects["project-label-composed"].visible
+          || objects["project-emoji-composed"].text !== "👩‍💻") throw new Error("Composed emoji and text label failed")
       console.log("PROJECTS_QML_PASS")
       Qt.quit()
     }
@@ -76,7 +83,7 @@ Scope {
         output = result.stdout + result.stderr
         if result.returncode or "PROJECTS_QML_PASS" not in output or "Binding loop detected" in output:
             raise SystemExit(output)
-        print("PASS native QML: text/icon/both labels, local sources, literal names, and missing-image fallback")
+        print("PASS native QML: text/image/emoji labels, Unicode sequences, local sources, and fallback")
 
 
 if __name__ == "__main__":

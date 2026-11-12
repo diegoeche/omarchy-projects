@@ -19,7 +19,11 @@ BarWidget {
 
   function labelMode(project) {
     return ["text", "icon", "both"].indexOf(project.label) >= 0
-      ? project.label : (project.icon ? "both" : "text")
+      ? project.label : (project.icon || project.emoji ? "both" : "text")
+  }
+
+  function emojiText(value) {
+    return typeof value === "string" && value.length <= 32 && !/[\s\u0000-\u001f\u007f-\u009f]/.test(value) ? value : ""
   }
 
   function readView(text) {
@@ -103,7 +107,8 @@ BarWidget {
         id: projectButton
         required property var modelData
         readonly property string displayMode: root.labelMode(modelData)
-        readonly property bool showIcon: projectIcon.source.toString() !== "" && projectIcon.status !== Image.Error
+        readonly property bool showEmoji: displayMode !== "text" && root.emojiText(modelData.emoji) !== ""
+        readonly property bool showIcon: showEmoji || (projectIcon.source.toString() !== "" && projectIcon.status !== Image.Error)
         readonly property bool showText: displayMode !== "icon" || !showIcon
         bar: root.bar
         text: modelData.name
@@ -112,7 +117,8 @@ BarWidget {
         tooltipText: showText ? "" : modelData.name
         Accessible.name: modelData.name
         Accessible.role: Accessible.Button
-        implicitWidth: showText ? labelRow.implicitWidth + scaledHorizontalMargin * 2 : Style.bar.iconSlot
+        implicitWidth: showText ? labelRow.implicitWidth + scaledHorizontalMargin * 2
+          : Math.max(Style.bar.iconSlot, labelRow.implicitWidth + Style.space(8))
         active: root.activeProject(modelData.id)
         opacity: active || root.occupiedProject(modelData.id) ? 1 : 0.5
         horizontalMargin: 9
@@ -129,13 +135,24 @@ BarWidget {
             width: Style.bar.iconSize
             height: width
             anchors.verticalCenter: parent.verticalCenter
-            visible: projectButton.showIcon
-            source: projectButton.displayMode === "text" ? "" : root.iconSource(projectButton.modelData.icon)
+            visible: projectIcon.source.toString() !== "" && projectIcon.status !== Image.Error
+            source: projectButton.displayMode === "text" || projectButton.showEmoji ? "" : root.iconSource(projectButton.modelData.icon)
             sourceSize.width: Math.ceil(width * 2)
             sourceSize.height: Math.ceil(width * 2)
             asynchronous: true
             cache: true
             fillMode: Image.PreserveAspectFit
+          }
+          Text {
+            objectName: "project-emoji-" + projectButton.modelData.id
+            visible: projectButton.showEmoji
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: root.emojiText(projectButton.modelData.emoji)
+            font.family: "emoji"
+            font.pixelSize: Style.bar.iconSize
+            color: projectButton.foreground
+            renderType: Text.NativeRendering
           }
           Text {
             objectName: "project-label-" + projectButton.modelData.id

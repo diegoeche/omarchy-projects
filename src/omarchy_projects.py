@@ -31,6 +31,13 @@ def validate_icon(value):
         raise ProjectError("icon must be an absolute or ~/ local image path (PNG, SVG, ICO, JPEG, WebP, AVIF, BMP)")
 
 
+def validate_emoji(value):
+    if (not isinstance(value, str) or not 1 <= len(value) <= 16 or any(
+            char.isspace() or ord(char) < 32 or 127 <= ord(char) < 160 or 0xD800 <= ord(char) <= 0xDFFF
+            for char in value)):
+        raise ProjectError("emoji must be a short glyph or emoji sequence without whitespace/control characters")
+
+
 def paths(home=None):
     base = Path(home) if home else Path.home()
     def xdg(key, fallback):
@@ -61,8 +68,8 @@ def validate(value):
     ids, slots, result = set(), set(), []
     for project in projects:
         if (not isinstance(project, dict) or not {"id", "name", "slot"} <= set(project)
-                or set(project) - {"id", "name", "slot", "appearance", "icon", "label"}):
-            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon, label")
+                or set(project) - {"id", "name", "slot", "appearance", "icon", "emoji", "label"}):
+            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon/emoji, label")
         ident, name, slot = (project[k] for k in ("id", "name", "slot"))
         if not isinstance(ident, str) or not IDENTIFIER.fullmatch(ident):
             raise ProjectError("project ids must use lowercase letters, digits, - or _")
@@ -78,11 +85,15 @@ def validate(value):
             validate_appearance(project["appearance"])
         if "icon" in project:
             validate_icon(project["icon"])
+        if "emoji" in project:
+            validate_emoji(project["emoji"])
+            if "icon" in project:
+                raise ProjectError("choose either icon or emoji for a project")
         if "label" in project:
             if project["label"] not in ("text", "icon", "both"):
                 raise ProjectError("label must be text, icon, or both")
-            if project["label"] != "text" and "icon" not in project:
-                raise ProjectError("icon and both labels need an icon path")
+            if project["label"] != "text" and not ("icon" in project or "emoji" in project):
+                raise ProjectError("icon and both labels need an icon path or emoji")
         result.append(dict(project))
     monitors = value.get("monitors", [])
     if not isinstance(monitors, list) or any(
@@ -216,11 +227,19 @@ def set_transition(config, locations, direction, duration=None):
 
 def icon_command(args, config, locations):
     project = select_project(config, args.project)
+    if args.file and args.emoji is not None:
+        raise ProjectError("choose an icon file or --emoji")
     if args.clear:
-        if args.file or args.label:
-            raise ProjectError("--clear cannot be combined with an icon file or --label")
+        if args.file or args.label or args.emoji is not None:
+            raise ProjectError("--clear cannot be combined with an icon file, --emoji, or --label")
         project.pop("icon", None)
+        project.pop("emoji", None)
         project.pop("label", None)
+    elif args.emoji is not None:
+        validate_emoji(args.emoji)
+        project["emoji"] = args.emoji
+        project.pop("icon", None)
+        project["label"] = args.label or "icon"
     elif args.file:
         source = Path(args.file).expanduser().resolve(strict=True)
         validate_icon(str(source))
@@ -238,11 +257,13 @@ def icon_command(args, config, locations):
             if os.path.exists(temporary):
                 os.unlink(temporary)
         project["icon"] = str(target)
+        project.pop("emoji", None)
         project["label"] = args.label or "icon"
     elif args.label:
         project["label"] = args.label
     else:
-        print(project.get("label", "both" if project.get("icon") else "text") + ": " + project.get("icon", project["name"]))
+        print(project.get("label", "both" if project.get("icon") or project.get("emoji") else "text")
+              + ": " + project.get("icon", project.get("emoji", project["name"])))
         return
     validate(config)
     save_config_change(config, locations)
@@ -368,6 +389,7 @@ def main(argv=None):
     icon = commands.add_parser("icon", help="configure a project's favicon/image label")
     icon.add_argument("project")
     icon.add_argument("file", nargs="?", help="local image to copy into project data")
+    icon.add_argument("--emoji", help="use an emoji or short glyph instead of an image")
     icon.add_argument("--label", choices=["text", "icon", "both"], help="display mode (defaults to icon with a new image)")
     icon.add_argument("--clear", action="store_true", help="remove the icon and show the project name")
     monitor = commands.add_parser("monitor", help="move the active window to a neighboring screen in the same project")

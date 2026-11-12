@@ -18,7 +18,7 @@ motion, and preserving an explicit manual wallpaper preview.
 
 ## Verified on 2026-11-12
 
-- 42 Python tests and 23 controller behavior tests passed.
+- 44 Python tests and 23 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
 - Icon-only labels loaded on both live bars using durable local PNG/SVG files.
   The widget reported normal geometry with no image-size binding loops.
@@ -26,6 +26,11 @@ motion, and preserving an explicit manual wallpaper preview.
   three native switches retained exact pointer coordinates from both bar
   positions and inside a window, preserved the focused monitor, and left the
   ordinary cursor-warp settings unchanged.
+- Emoji-only and emoji-plus-text labels loaded offscreen, including joined
+  Unicode sequences. A native five-project reorder kept four existing windows
+  on their physical monitors with their geometry and floating/tiled states
+  unchanged, and migrated their saved workspace layouts. All five project
+  views synchronized across both monitors and applied their Colorful palettes.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
 - Disposable Foot windows verified silent and following project moves, external
