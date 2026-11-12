@@ -270,6 +270,34 @@ test('former project survives the reload caused by changing themes', function()
   os.remove(view)
 end)
 
+test('switching projects does not recreate an unchanged bar model', function()
+  local view = os.tmpname()
+  local controller = fixture({ state_file = view })
+  local rename, writes = os.rename, 0
+  os.rename = function(from, target)
+    if target == view then writes = writes + 1 end
+    return rename(from, target)
+  end
+  local ok, err = pcall(function()
+    controller.show('boreal')
+    controller.show('personal')
+    equal(writes, 0)
+    bases.right = 80
+    controller.publish()
+    equal(writes, 1)
+  end)
+  os.rename = rename
+  os.remove(view)
+  assert(ok, err)
+end)
+
+test('showing the current project avoids redundant focus changes', function()
+  local controller = fixture()
+  controller.show('atlas')
+  equal(#calls, 0)
+  equal(focused.name, 'right')
+end)
+
 test('published names round trip as JSON data, including markup', function()
   local file = os.tmpname()
   local controller, _, config = fixture({ state_file = file })

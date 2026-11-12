@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Scoped to project theme changes through PATH; leave workspace animations running.
+set -euo pipefail
+result=$(hyprctl eval 'dofile((os.getenv("HOME") or "") .. "/.local/state/omarchy/current/theme/hyprland.lua")')
+if [[ $result != "ok" ]]; then
+  printf '%s\n' "$result" >&2
+  exit 1
+fi

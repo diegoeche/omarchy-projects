@@ -41,7 +41,7 @@ def paths(home=None):
 def validate(value):
     if not isinstance(value, dict) or value.get("version") != 1:
         raise ProjectError("projects.json must be an object with version 1")
-    unknown = set(value) - {"version", "projects", "monitors", "follow_focus"}
+    unknown = set(value) - {"version", "projects", "monitors", "follow_focus", "workspace_transition"}
     if unknown:
         raise ProjectError("unknown config keys: " + ", ".join(sorted(unknown)))
     projects = value.get("projects")
@@ -77,7 +77,17 @@ def validate(value):
     follow = value.get("follow_focus", True)
     if type(follow) is not bool:
         raise ProjectError("follow_focus must be true or false")
-    return {"version": 1, "projects": result, "monitors": monitors, "follow_focus": follow}
+    config = {"version": 1, "projects": result, "monitors": monitors, "follow_focus": follow}
+    transition = value.get("workspace_transition")
+    if transition is not None:
+        if (not isinstance(transition, dict) or set(transition) != {"style", "duration_ms"}
+                or not isinstance(transition["style"], str)
+                or transition["style"] not in {"slide", "slidevert", "fade"}
+                or type(transition["duration_ms"]) is not int
+                or not 80 <= transition["duration_ms"] <= 300):
+            raise ProjectError("workspace_transition needs style (slide, slidevert, fade) and duration_ms (80–300)")
+        config["workspace_transition"] = dict(transition)
+    return config
 
 
 def load_config(path):

@@ -103,6 +103,21 @@ The layer asks Omarchy for the mapping rather than assuming those numbers.
 Changing a slot assigns that name to a different existing workspace; it does
 not migrate windows. Keep slots stable and change names freely.
 
+### Workspace transitions
+
+For a short horizontal slide, add this top-level setting to `projects.json`,
+then run `omarchy-projects reload`:
+
+```json
+"workspace_transition": { "style": "slide", "duration_ms": 200 }
+```
+
+This uses Hyprland's native workspace animation on all participating monitors.
+`slidevert` and `fade` also work; duration can be 80–300 milliseconds. Without
+the setting, the layer leaves your existing workspace animations alone. The
+global Omarchy animation toggle still applies. The animation moves workspace
+windows; the wallpaper remains a separate shell background.
+
 ## Shortcuts
 
 | Keys | Action |
@@ -188,6 +203,15 @@ serialized, with rapid switching converging on the latest project. Switching
 between projects with the same palette only changes the wallpaper. Failed
 background/theme commands are recorded in
 `~/.local/state/omarchy-projects/appearance.log`.
+
+Full application recoloring still uses Omarchy's normal theme command. For
+project switches only, a scoped helper applies the newly generated Hyprland
+theme colors directly, avoiding the compositor reload that would interrupt
+workspace animations. Automatic config reload is paused while generated theme
+files are replaced and restored afterward, including when the update fails.
+Manual theme changes and Aether keep their normal behavior.
+Unchanged bar models are not rewritten, so switching does not recreate the
+project buttons.
 
 Omarchy themes are global: the active project's palette applies to the bar,
 terminals, and other themed applications, including windows on hidden projects.

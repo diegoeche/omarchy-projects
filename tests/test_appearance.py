@@ -1,5 +1,7 @@
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -108,13 +110,52 @@ class AppearanceTests(unittest.TestCase):
         commands = []
         def run(command, **kwargs):
             commands.append((command, kwargs))
+            if command[:3] == ['hyprctl', '-j', 'getoption']:
+                return '{"bool":false}'
+            if command[:2] == ['hyprctl', 'eval']:
+                return 'ok\n'
             if command[:3] == ['omarchy', 'theme', 'set']:
                 (self.current / 'theme.name').write_text(command[3])
         with patch.object(appearance, 'run', side_effect=run):
             appearance.apply_look({'theme': 'new-theme', 'wallpaper': str(self.source)}, self.locations)
-        self.assertEqual(commands[0][0], ['omarchy', 'theme', 'set', 'new-theme'])
-        self.assertEqual(commands[0][1]['env']['OMARCHY_THEME_SKIP_BACKGROUND'], '1')
+        theme = next(call for call in commands if call[0][:3] == ['omarchy', 'theme', 'set'])
+        self.assertEqual(theme[0], ['omarchy', 'theme', 'set', 'new-theme'])
+        self.assertEqual(theme[1]['env']['OMARCHY_THEME_SKIP_BACKGROUND'], '1')
+        self.assertEqual(theme[1]['env']['PATH'].split(os.pathsep)[0], str(self.locations['data'] / 'theme-bin'))
         self.assertEqual((self.current / 'background').resolve(), self.source)
+
+    def test_scoped_theme_helper_applies_colors_without_reloading_compositor(self):
+        fake_bin = self.locations['home'] / 'fake-bin'
+        fake_bin.mkdir()
+        call = self.locations['home'] / 'hyprctl-call'
+        command = fake_bin / 'hyprctl'
+        command.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$TEST_CALL"\nprintf "ok\\n"\n')
+        command.chmod(0o755)
+        environment = dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ['PATH'], TEST_CALL=str(call))
+        subprocess.run(['bash', str(ROOT / 'theme-bin/omarchy-restart-hyprctl')],
+                       env=environment, check=True)
+        args = call.read_text().splitlines()
+        self.assertEqual(args[0], 'eval')
+        self.assertIn('/current/theme/hyprland.lua', args[1])
+        self.assertNotIn('reload', args)
+
+    def test_autoreload_is_restored_when_theme_command_fails(self):
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            return '{"bool":false}' if '-j' in command else 'ok\n'
+        with patch.object(appearance, 'run', side_effect=run):
+            with self.assertRaises(RuntimeError):
+                with appearance.pause_theme_autoreload():
+                    raise RuntimeError('failed retint')
+        self.assertIn('disable_autoreload = true', calls[1][-1])
+        self.assertIn('disable_autoreload = false', calls[-1][-1])
+
+    def test_existing_disabled_autoreload_setting_is_preserved(self):
+        with patch.object(appearance, 'run', return_value='{"bool":true}') as run:
+            with appearance.pause_theme_autoreload():
+                pass
+        self.assertEqual(run.call_count, 1)
 
 
 if __name__ == '__main__':

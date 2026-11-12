@@ -1,5 +1,6 @@
 """Apply project looks using Omarchy's existing theme and background commands."""
 import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -92,6 +93,29 @@ def run(command, **kwargs):
         raise AppearanceError(str(exc)) from exc
     if result.returncode:
         raise AppearanceError((result.stderr or result.stdout or "Appearance command failed").strip())
+    return result.stdout
+
+
+@contextmanager
+def pause_theme_autoreload():
+    """Replacing a watched theme file must not restart a workspace animation."""
+    option = json.loads(run(["hyprctl", "-j", "getoption", "misc:disable_autoreload"]))
+    original = option.get("bool")
+    if type(original) is not bool:
+        raise AppearanceError("Cannot determine Hyprland's auto-reload setting")
+    def set_disabled(value):
+        expression = ('hl.config({ misc = { disable_autoreload = ' + value
+                      + ' } }); hl.exec_scheduled_prop_refresh_immediately()')
+        response = run(["hyprctl", "eval", expression])
+        if response.strip() != "ok":
+            raise AppearanceError(response.strip() or "Could not update config auto-reload")
+    if not original:
+        set_disabled("true")
+    try:
+        yield
+    finally:
+        if not original:
+            set_disabled("false")
 
 
 def set_wallpaper(wallpaper, locations):
@@ -113,10 +137,15 @@ def apply_look(look, locations):
             set_wallpaper(look["wallpaper"], locations)
         if previous["theme"] != look["theme"]:
             environment = dict(os.environ, OMARCHY_THEME_SKIP_BACKGROUND="1")
+            # Keep Omarchy's complete application retint, but apply its newly
+            # generated border colors directly instead of reloading Hyprland.
+            # This PATH override belongs only to this invocation and its children.
+            environment["PATH"] = str(locations["data"] / "theme-bin") + os.pathsep + os.environ.get("PATH", os.defpath)
             environment.pop("OMARCHY_THEME_HEADLESS", None)
             environment.pop("OMARCHY_THEME_OFFLINE", None)
             environment.pop("OMARCHY_THEME_WAIT", None)
-            run(["omarchy", "theme", "set", look["theme"]], env=environment)
+            with pause_theme_autoreload():
+                run(["omarchy", "theme", "set", look["theme"]], env=environment)
         if current_look(locations)["theme"] != look["theme"]:
             raise AppearanceError("Omarchy did not apply the project's theme")
     except Exception:

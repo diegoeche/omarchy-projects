@@ -34,6 +34,14 @@ class ConfigTests(unittest.TestCase):
         result = subprocess.run(["lua", "-"], input=script, capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout, value)
 
+    def test_invalid_workspace_transition_is_rejected_without_type_errors(self):
+        for transition in (True, {'style': [], 'duration_ms': 200},
+                           {'style': 'slide', 'duration_ms': True},
+                           {'style': 'slide', 'duration_ms': 800}):
+            with self.subTest(transition=transition):
+                with self.assertRaises(project.ProjectError):
+                    project.validate(dict(self.config, workspace_transition=transition))
+
     def test_generated_lua_handles_markup_as_plain_data(self):
         self.config["projects"][0]["name"] = '<img src="https://invalid.test/x">'
         config = project.validate(self.config)

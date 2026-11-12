@@ -5,6 +5,7 @@ local config, by_id, by_slot = nil, {}, {}
 local busy, settling, generation = false, false, 0
 local selected, previous = nil, nil
 local appearance_project, appearance_generation = nil, 0
+local published_view = nil
 
 local function json_string(value)
   return '"' .. tostring(value):gsub('[%z\1-\31\\"]', function(char)
@@ -89,10 +90,15 @@ function M.publish()
   end
   local content = '{"version":1,"projects":' .. json_array(projects)
     .. ',"monitors":' .. json_array(monitors) .. '}\n'
-  local file = assert(io.open(config.state_file .. '.tmp', 'w'))
-  file:write(content)
-  file:close()
-  assert(os.rename(config.state_file .. '.tmp', config.state_file))
+  -- Active project highlighting comes from compositor events. Rewriting an
+  -- unchanged model recreates every bar button and makes a switch flicker.
+  if content ~= published_view then
+    local file = assert(io.open(config.state_file .. '.tmp', 'w'))
+    file:write(content)
+    file:close()
+    assert(os.rename(config.state_file .. '.tmp', config.state_file))
+    published_view = content
+  end
   if config.history_file and selected then
     local history = assert(io.open(config.history_file .. '.tmp', 'w'))
     history:write(selected.id .. '\n' .. (previous and previous.id or '') .. '\n')
@@ -122,13 +128,23 @@ function M.show(id)
   local ok, err = pcall(function()
     -- Switch the original monitor last: focus finishes on the same screen.
     for _, monitor in ipairs(monitors) do
-      if monitor.name ~= origin then o.workspaces.focus(project.slot, monitor.name)() end
+      if monitor.name ~= origin then
+        local active = monitor.active_workspace
+        if not active or active.id ~= o.workspaces.workspace_id(monitor, project.slot) then
+          o.workspaces.focus(project.slot, monitor.name)()
+        end
+      end
     end
     if origin then
       local managed = false
       for _, monitor in ipairs(monitors) do
         if monitor.name == origin then
-          o.workspaces.focus(project.slot, origin)()
+          local active = monitor.active_workspace
+          if not active or active.id ~= o.workspaces.workspace_id(monitor, project.slot) then
+            o.workspaces.focus(project.slot, origin)()
+          elseif hl.get_active_monitor().name ~= origin then
+            hl.dispatch(hl.dsp.focus({ monitor = origin }))
+          end
           managed = true
         end
       end
@@ -233,11 +249,21 @@ function M.setup(settings)
   config, by_id, by_slot = settings, {}, {}
   busy, settling, selected, previous = false, false, nil, nil
   appearance_project = nil
+  published_view = nil
+  if config.state_file then
+    local file = io.open(config.state_file, 'r')
+    if file then published_view = file:read('*a'); file:close() end
+  end
   for _, project in ipairs(config.projects) do
     assert(not by_id[project.id] and not by_slot[project.slot], 'Duplicate project id or slot')
     by_id[project.id], by_slot[project.slot] = project, project
   end
   _G.omarchy_projects = M
+  if config.workspace_transition then
+    hl.animation({ leaf = 'workspaces', enabled = true,
+      speed = config.workspace_transition.duration_ms / 100,
+      bezier = 'default', style = config.workspace_transition.style })
+  end
   if settings.bindings ~= false then M.bindings() end
   local function topology_changed()
     settling = true

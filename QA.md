@@ -10,7 +10,7 @@ markup is rendered as plain text, without opening a desktop window.
 
 ## Verified on 2026-11-12
 
-- 22 Python tests and 16 controller behavior tests passed.
+- 26 Python tests and 18 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
@@ -23,6 +23,10 @@ markup is rendered as plain text, without opening a desktop window.
   rapid changes converged on the final project. The initial palette change used
   Omarchy's standard theme command. The former-project shortcut survives theme
   reloads, and silent window moves do not queue appearance changes.
+- With the native 200 ms horizontal workspace slide enabled, a Lua VM marker
+  survived a complete cross-theme project switch, confirming that the compositor
+  was not reloaded. The bar model's file timestamp also stayed unchanged.
+  Hyprland's prior auto-reload setting was restored after the theme update.
 - The running session was locked during bar verification. A shell restart was
   correctly refused by Omarchy; an unlocked, on-screen bar inspection is pending.
 
