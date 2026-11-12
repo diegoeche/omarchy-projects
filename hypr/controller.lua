@@ -193,6 +193,11 @@ function M.commit(id, managed)
   busy = false
   if not ok then error(err) end
   selected = project
+  if managed == true then
+    -- The shell may advance its shared wallpaper clock only after every
+    -- monitor has committed its workspace change in this compositor event.
+    hl.dispatch(hl.dsp.global('omarchy-projects:start-' .. project.slot))
+  end
   M.publish()
   M.request_appearance(project)
   return true

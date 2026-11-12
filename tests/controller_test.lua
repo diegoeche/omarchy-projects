@@ -370,5 +370,17 @@ test('a compositor reload keeps immediate switches routed through the resident r
   os.remove(file)
 end)
 
+test('wallpaper start is acknowledged only after all monitor workspaces have changed', function()
+  local controller = fixture({ preload_wallpapers = true })
+  controller.commit('boreal', true)
+  equal(calls[1].slot, 3)
+  equal(calls[1].name, 'left')
+  equal(calls[2].slot, 3)
+  equal(calls[2].name, 'right')
+  equal(calls[3].name, 'omarchy-projects:start-3')
+  equal(monitors[1].active_workspace.id, 3)
+  equal(monitors[2].active_workspace.id, 43)
+end)
+
 print(string.format('%d passed, %d failed', passes, failures))
 os.exit(failures > 0 and 1 or 0)

@@ -202,6 +202,20 @@ def appearance_command(args, config, locations):
     if args.appearance_action == "apply":
         apply_requested(locations, load_config)
         return
+    if args.appearance_action == "generate":
+        if args.all and (args.project or args.wallpaper):
+            raise ProjectError("--all cannot be combined with a project or --wallpaper")
+        targets = config["projects"] if args.all else [select_project(config, args.project)
+            if args.project else focused_project(config, locations)]
+        for target in targets:
+            look = dict(target.get("appearance") or current_look(locations))
+            if args.wallpaper:
+                look["wallpaper"] = args.wallpaper
+            look["aether_variant"] = args.variant or look.get("aether_variant", "colorful")
+            target["appearance"] = snapshot_look(target["id"], look, locations)
+        save_config_change(config, locations)
+        print("Prepared Aether palettes for " + str(len(targets)) + " project(s)")
+        return
     project = select_project(config, args.project) if args.project else focused_project(config, locations)
     if args.appearance_action == "menu":
         call("show", project["id"])
@@ -253,16 +267,29 @@ def reload_config(locations):
     config = load_config(locations["config"])
     if config.get("preload_wallpapers") and not (locations["background_plugin"] / "ProjectScene.qml").is_file():
         raise ProjectError("Run scripts/install.py once to install the preloaded background plugin")
-    prepare_assets(config, locations)
+    original_config = locations["config"].read_text()
+    before = json.dumps(config, sort_keys=True)
+    scene_path = locations["state"] / "scene.json"
+    original_scene = scene_path.read_text() if scene_path.exists() else None
+    scene = prepare_assets(config, locations, write=False)
     generated = locations["state"] / "config.lua"
     previous = generated.read_text() if generated.exists() else None
-    atomic_write(generated, compile_config(config, locations))
     try:
+        if json.dumps(config, sort_keys=True) != before:
+            atomic_write(locations["config"], json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+        if scene is not None and (original_scene is None or json.loads(original_scene) != scene):
+            atomic_write(scene_path, json.dumps(scene, indent=2, ensure_ascii=False) + "\n")
+        atomic_write(generated, compile_config(config, locations))
         hyprctl("reload")
         errors = hyprctl("configerrors")
         if errors:
             raise ProjectError(errors)
     except ProjectError:
+        atomic_write(locations["config"], original_config)
+        if original_scene is not None:
+            atomic_write(scene_path, original_scene)
+        else:
+            scene_path.unlink(missing_ok=True)
         if previous is not None:
             atomic_write(generated, previous)
             hyprctl("reload")
@@ -292,6 +319,11 @@ def main(argv=None):
     appearance = commands.add_parser("appearance", help="configure each project's theme and wallpaper")
     appearance_actions = appearance.add_subparsers(dest="appearance_action", required=True)
     appearance_actions.add_parser("apply", help="apply the latest queued project appearance")
+    generate = appearance_actions.add_parser("generate", help="prepare project palettes using installed Aether")
+    generate.add_argument("project", nargs="?")
+    generate.add_argument("--all", action="store_true", help="generate each configured project's palette")
+    generate.add_argument("--variant", help="Aether extraction mode, default colorful")
+    generate.add_argument("--wallpaper", help="replace one project's wallpaper and regenerate its palette")
     for name in ("save", "menu", "set"):
         action = appearance_actions.add_parser(name)
         action.add_argument("project", nargs=None if name == "set" else "?", help="defaults to the focused project")

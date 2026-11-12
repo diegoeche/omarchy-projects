@@ -44,6 +44,15 @@ class AppearanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 project.validate(self.config)
 
+    def test_all_projects_can_keep_the_colorful_variant_in_config(self):
+        with patch.object(project, 'paths', return_value=self.locations), patch.object(project, 'reload_config'):
+            project.main(['appearance', 'generate', '--all', '--variant', 'colorful'])
+        saved = project.load_config(self.locations['config'])
+        self.assertEqual([row['appearance']['aether_variant'] for row in saved['projects']], ['colorful'] * 3)
+        for mode in ('--apply', 'colorful; touch /tmp/x', 1):
+            with self.assertRaises(ValueError):
+                appearance.validate_appearance(dict(saved['projects'][0]['appearance'], aether_variant=mode))
+
     def test_snapshot_survives_source_wallpaper_replacement(self):
         look = appearance.snapshot_look('atlas', appearance.current_look(self.locations), self.locations)
         self.source.write_bytes(b'a different Aether wallpaper')

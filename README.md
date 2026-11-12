@@ -154,6 +154,12 @@ positions, not image files. Identical wallpapers are deduplicated by content.
 This trades additional decoded-image and texture memory for predictable switches;
 GPU memory residency still depends on Qt and the graphics driver.
 
+The compositor acknowledges the workspace change on every monitor before the
+shared wallpaper animation starts. All screens use the same progress value.
+Physical presentation still follows each display's refresh clock; this layer
+does not provide hardware frame locking. See [Qt's multi-window rendering
+notes](https://doc.qt.io/qt-6/qtquick-visualcanvas-scenegraph.html#what-if-there-is-no-or-more-than-one-window-visible).
+
 Palette templates are prepared during configuration reload, outside the switch
 path. Shell colors interpolate during the 200 ms slide, while Omarchy's complete
 application recoloring runs in the background. Individual applications receive
@@ -266,6 +272,31 @@ Omarchy themes are global: the active project's palette applies to the bar,
 terminals, and other themed applications, including windows on hidden projects.
 The next project switch restores its assigned look. Aether is optional; themes
 and wallpaper paths can be configured directly without installing it.
+
+### Generate palettes with Aether
+
+With Aether already installed, generate its **Colorful** variant from every
+project's own wallpaper:
+
+```sh
+omarchy-projects appearance generate --all --variant colorful
+omarchy-projects appearance generate atlas --variant colorful
+
+# Replace one wallpaper and regenerate its chosen variant:
+omarchy-projects appearance generate atlas --wallpaper ~/Pictures/new-wallpaper.png
+```
+
+The command uses Aether's `--extract-mode` and `--no-apply` options to prepare
+palettes, then saves a separate local Omarchy theme for each project. Normal
+Omarchy application recoloring and shell interpolation consume those same
+Aether color values. Generation is outside the switch/animation path.
+
+The choice is saved as `appearance.aether_variant`, alongside the theme and
+wallpaper. Changing that wallpaper or variant in the config and running
+`omarchy-projects reload` prepares a new palette. Unchanged generated palettes
+are reused. Other extraction modes accepted by installed Aether also work.
+Saving a manually edited Aether look explicitly replaces automatic generation
+with the editor's current saved theme and wallpaper.
 
 ## Hotplug and current limits
 

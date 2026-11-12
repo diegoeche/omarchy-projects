@@ -15,6 +15,60 @@ from omarchy_projects import paths
 
 
 class AssetTests(unittest.TestCase):
+    def test_aether_colorful_is_prepared_without_apply_and_reused_until_inputs_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            locations = paths(temporary)
+            look = {'theme': 'fixture', 'wallpaper': '/synthetic/wallpaper.png', 'aether_variant': 'colorful'}
+            calls = []
+            def generate(command, **kwargs):
+                calls.append(command)
+                output = Path(command[command.index('--output') + 1])
+                (output / 'colors.toml').write_text('background = "#010203"\naccent = "#456789"\n')
+                return subprocess.CompletedProcess(command, 0, '', '')
+            with patch.object(assets.shutil, 'which', return_value=sys.executable), patch.object(assets.subprocess, 'run', side_effect=generate):
+                first = assets.prepare_aether_theme('atlas', look, 'a'*64, locations)
+                self.assertEqual(assets.prepare_aether_theme('atlas', look, 'a'*64, locations), first)
+                self.assertEqual(len(calls), 1)
+                self.assertIn('--no-apply', calls[0])
+                self.assertEqual(calls[0][calls[0].index('--extract-mode') + 1], 'colorful')
+                target = locations['home'] / '.config/omarchy/themes' / first['theme']
+                self.assertEqual((target / 'colors.toml').read_text(), 'background = "#010203"\naccent = "#456789"\n')
+                self.assertEqual(json.loads((target / '.aether.json').read_text())['variant'], 'colorful')
+                second = assets.prepare_aether_theme('atlas', look, 'b'*64, locations)
+                third = assets.prepare_aether_theme('atlas', dict(look, aether_variant='pastel'), 'b'*64, locations)
+                self.assertNotEqual(first['theme'], second['theme'])
+                self.assertNotEqual(second['theme'], third['theme'])
+                self.assertEqual(len(calls), 3)
+
+    def test_missing_optional_aether_fails_without_creating_theme(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            locations = paths(temporary)
+            with patch.object(assets.shutil, 'which', return_value=None):
+                with self.assertRaisesRegex(ValueError, 'not installed'):
+                    assets.prepare_aether_theme('atlas', {'aether_variant': 'colorful'}, 'a'*64, locations)
+            self.assertFalse((locations['home'] / '.config/omarchy/themes').exists())
+
+    def test_generated_theme_is_saved_in_profile_and_used_by_shell_palette(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            locations = paths(temporary)
+            (locations['home'] / '.config/omarchy/themes/fixture').mkdir(parents=True)
+            image = locations['home'] / 'wallpaper.png'
+            image.write_bytes(b'synthetic wallpaper')
+            config = {'preload_wallpapers': True, 'projects': [{'id': 'atlas', 'slot': 1,
+                'appearance': {'theme': 'fixture', 'wallpaper': str(image), 'aether_variant': 'colorful'}}]}
+            def generate(command, **kwargs):
+                output = Path(command[command.index('--output') + 1])
+                (output / 'colors.toml').write_text('background = "#010203"\n')
+                return subprocess.CompletedProcess(command, 0, '', '')
+            with patch.object(assets.shutil, 'which', return_value=sys.executable), patch.object(assets.subprocess, 'run', side_effect=generate) as calls, patch.object(assets, 'prepare_theme', return_value={'cache': '/fixture', 'colors': 'generated palette', 'shell': ''}):
+                scene = assets.prepare_assets(config, locations)
+                name = config['projects'][0]['appearance']['theme']
+                self.assertIn('colorful', name)
+                self.assertEqual(config['projects'][0]['appearance']['aether_variant'], 'colorful')
+                self.assertEqual(scene['themes'][name]['colors'], scene['projects'][0]['colors'])
+                assets.prepare_assets(config, locations)
+                self.assertEqual(calls.call_count, 1)
+
     def test_content_deduplication_and_unchanged_manifest_is_not_rewritten(self):
         with tempfile.TemporaryDirectory() as temporary:
             locations = paths(temporary)

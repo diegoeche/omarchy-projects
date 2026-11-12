@@ -54,13 +54,18 @@ Window {
   property int loads: 0
   property bool sawMidpoint: false
   property bool checkedRefresh: false
+  property int waitTicks: 0
   property var original: []
-  Background.ProjectScene { id: scene; panels: [{projectWallpapers: wallpapers}]; live: false }
+  Background.ProjectScene { id: scene; panels: [{projectWallpapers: wallpapers}]; live: false; coordinateWithCompositor: true }
   Background.ProjectWallpapers { id: wallpapers; anchors.fill: parent; scene: scene; display: null }
   Timer {
     interval: 10; running: true; repeat: true
     onTriggered: {
       if (++host.ticks > 500) { console.error("Timed out waiting for preloaded scene: " + scene.status()); Qt.quit(); return }
+      if (scene.waitingForCompositor) {
+        if (scene.progress !== 0) throw new Error("Wallpaper advanced before both monitors committed")
+        if (++host.waitTicks >= 3) { host.waitTicks = 0; scene.start(scene.currentProject) }
+      }
       if (host.stage === 1 && scene.currentProject === "boreal" && scene.progress > 0.05 && scene.progress < 0.95) {
         var a = wallpapers.images.itemAt(0), b = wallpapers.images.itemAt(1)
         var vertical = scene.style === "slidevert"

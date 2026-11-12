@@ -16,7 +16,7 @@ motion, and preserving an explicit manual wallpaper preview.
 
 ## Verified on 2026-11-12
 
-- 35 Python tests and 21 controller behavior tests passed.
+- 40 Python tests and 22 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
@@ -47,6 +47,13 @@ motion, and preserving an explicit manual wallpaper preview.
   vertical movement with zero horizontal displacement, shared incoming/outgoing
   edges, unchanged image-load counts, and an active project renderer. Every
   switch recovered its renderer connection and kept managed wallpaper requests.
+- Every project was regenerated with installed Aether's Colorful extraction
+  mode. Independent saved theme palettes matched the active shell background
+  colors after full application theme changes, and switching reused loaded
+  wallpapers. The shared animation started after compositor acknowledgement
+  (2–4 ms in these checks), with identical normalized progress on both screens.
+  Physical presentation timing was not measured; the displays ran at different
+  refresh rates.
 
 ## Native desktop smoke test
 

@@ -16,8 +16,12 @@ class AppearanceError(ValueError):
 
 
 def validate_appearance(value):
-    if not isinstance(value, dict) or set(value) != {"theme", "wallpaper"}:
-        raise AppearanceError("appearance needs exactly theme and wallpaper")
+    if (not isinstance(value, dict) or not {"theme", "wallpaper"} <= set(value)
+            or set(value) - {"theme", "wallpaper", "aether_variant"}):
+        raise AppearanceError("appearance needs theme and wallpaper, with optional aether_variant")
+    if "aether_variant" in value and (not isinstance(value["aether_variant"], str)
+            or not re.fullmatch(r"[a-z][a-z0-9-]{0,39}", value["aether_variant"])):
+        raise AppearanceError("appearance.aether_variant must be an Aether extraction mode")
     theme, wallpaper = value["theme"], value["wallpaper"]
     if not isinstance(theme, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,119}", theme):
         raise AppearanceError("appearance.theme must be an installed theme slug")

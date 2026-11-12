@@ -10,6 +10,7 @@ Item {
   id: root
   required property var panels
   property bool live: Quickshell.env("OMARCHY_PROJECTS_TESTING") !== "1"
+  property bool coordinateWithCompositor: live
   property var manifest: ({ projects: [], assets: [], duration: 200, style: "slide" })
   readonly property var assets: manifest.assets
   readonly property string style: manifest.style || "slide"
@@ -30,7 +31,10 @@ Item {
   property var palette: null
   property string finalColors: ""
   property string finalShell: ""
-  readonly property bool moving: motion.running
+  property bool waitingForCompositor: false
+  property real commitRequestedAt: 0
+  property real commitDelayMs: 0
+  readonly property bool moving: waitingForCompositor || motion.running
   property string lastDispatch: ""
 
   function project(id) {
@@ -126,8 +130,22 @@ Item {
     var shell = Object.assign({}, Commons.Color.parseShell(target.shell), Commons.Color.userShellValues)
     palette = Motion.palettePlan(source, Commons.Color.shellValues, targetBase, shell)
     progress = 0
+    if (pendingCommit && coordinateWithCompositor) {
+      waitingForCompositor = true
+      commitRequestedAt = Date.now()
+      commitTimeout.restart()
+      dispatch("commit", target.id, true)
+    } else {
+      motion.start()
+      if (pendingCommit) dispatch("commit", target.id, true)
+    }
+  }
+  function start(id) {
+    if (!waitingForCompositor || id !== currentProject) return
+    commitDelayMs = Math.max(0, Date.now() - commitRequestedAt)
+    commitTimeout.stop()
+    waitingForCompositor = false
     motion.start()
-    if (pendingCommit) dispatch("commit", target.id, true)
   }
   function applyPalette() {
     if (!palette) return
@@ -166,13 +184,15 @@ Item {
       // A delayed project worker or a shell refresh is still a project
       // wallpaper. It must not turn the resident scene into a static image.
       if (actual && actual.asset === assets[i].key) {
-        if (actual.id !== currentProject) request(actual.id, false)
+        if (actual.id !== currentProject) { if (!moving) request(actual.id, false) }
         else { active = true; manualOverride = false }
       }
       announce()
       return true
     }
     motion.stop()
+    waitingForCompositor = false
+    commitTimeout.stop()
     palette = null
     pendingProject = queuedProject = ""
     active = false
@@ -191,11 +211,18 @@ Item {
     return JSON.stringify({ current: currentProject, moving: moving, loaded: ready.length, imageLoads: loads,
       uniqueWallpapers: assets.length, active: active,
       color: String(Commons.Color.background), progress: progress,
-      style: style, workspace: focusedProject(), manualOverride: manualOverride, screens: screens })
+      style: style, workspace: focusedProject(), manualOverride: manualOverride, screens: screens,
+      waitingForCompositor: waitingForCompositor, commitDelayMs: commitDelayMs })
   }
   onProgressChanged: applyPalette()
   onPendingProjectChanged: { if (pendingProject) readinessTimeout.restart() }
   Component.onDestruction: { if (live) dispatch("renderer_ready", false) }
+
+  Timer {
+    id: commitTimeout
+    interval: 150
+    onTriggered: root.start(root.currentProject)
+  }
 
   Timer {
     id: readinessTimeout
@@ -229,6 +256,8 @@ Item {
         var data = JSON.parse(text())
         if (!Motion.validManifest(data)) throw new Error("Invalid scene")
         motion.stop()
+        root.waitingForCompositor = false
+        commitTimeout.stop()
         root.palette = null
         root.pendingProject = root.queuedProject = ""
         root.progress = 1
@@ -259,6 +288,11 @@ Item {
         appid: "omarchy-projects"
         name: "look-" + modelData.slot
         onPressed: root.request(modelData.id, false)
+      }
+      GlobalShortcut {
+        appid: "omarchy-projects"
+        name: "start-" + modelData.slot
+        onPressed: root.start(modelData.id)
       }
     }
   }

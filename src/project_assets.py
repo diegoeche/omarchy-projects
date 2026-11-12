@@ -11,6 +11,41 @@ import tempfile
 from project_appearance import AppearanceError, resolve_look, write_json
 
 
+def prepare_aether_theme(project_id, look, image_key, locations):
+    """Extract once with installed Aether; keep its palette for normal Omarchy retints."""
+    binary = shutil.which('aether')
+    if not binary:
+        raise AppearanceError('This appearance requests an Aether variant, but Aether is not installed')
+    stat = Path(binary).resolve().stat()
+    variant = look['aether_variant']
+    signature = hashlib.sha256(f'{image_key}:{variant}:{stat.st_size}:{stat.st_mtime_ns}'.encode()).hexdigest()
+    name = 'projects-' + project_id + '-' + variant + '-' + signature[:16]
+    root = locations['home'] / '.config/omarchy/themes'
+    target = root / name
+    if not (target / '.aether.json').is_file() or not (target / 'colors.toml').is_file():
+        root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='.projects-aether-', dir=root) as temporary:
+            output = Path(temporary)
+            try:
+                result = subprocess.run([binary, '--generate', look['wallpaper'], '--extract-mode', variant,
+                    '--no-apply', '--output', str(output), '--no-zed', '--no-vscode', '--no-neovim'],
+                    capture_output=True, text=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise AppearanceError('Aether palette preparation failed: ' + str(exc)) from exc
+            if result.returncode or not (output / 'colors.toml').is_file():
+                raise AppearanceError((result.stderr or result.stdout or 'Aether produced no colors.toml').strip())
+            staged = output / 'project-theme'
+            staged.mkdir()
+            shutil.copyfile(output / 'colors.toml', staged / 'colors.toml')
+            if (output / 'icons.theme').is_file():
+                shutil.copyfile(output / 'icons.theme', staged / 'icons.theme')
+            write_json(staged / '.aether.json', {'variant': variant, 'image': image_key, 'signature': signature})
+            if target.exists():
+                raise AppearanceError('Incomplete generated project theme; inspect ' + str(target))
+            staged.rename(target)
+    return dict(look, theme=name)
+
+
 def file_signature(paths):
     digest = hashlib.sha256()
     digest.update(b'omarchy-projects-prepared-themes-v2')
@@ -74,12 +109,15 @@ def image_dimensions(path):
 
 
 def prepare_assets(config, locations, write=True):
-    if not config.get('preload_wallpapers'):
+    preload = config.get('preload_wallpapers')
+    if not preload and not any('aether_variant' in row.get('appearance', {}) for row in config['projects']):
         return
     assets, projects, themes = {}, [], {}
     for project in config['projects']:
         if 'appearance' not in project:
             projects.append({'id': project['id'], 'slot': project['slot'], 'asset': '', 'colors': '', 'shell': ''})
+            continue
+        if not preload and 'aether_variant' not in project['appearance']:
             continue
         look = resolve_look(project['appearance'], locations)
         path = Path(look['wallpaper'])
@@ -90,6 +128,11 @@ def prepare_assets(config, locations, write=True):
             for block in iter(lambda: stream.read(1024 * 1024), b''):
                 digest.update(block)
         key = digest.hexdigest()
+        if 'aether_variant' in look:
+            look = prepare_aether_theme(project['id'], look, key, locations)
+            project['appearance'] = look
+        if not preload:
+            continue
         if key not in assets:
             width, height = image_dimensions(path)
             assets[key] = {'key': key, 'path': str(path), 'width': width, 'height': height}
@@ -98,6 +141,8 @@ def prepare_assets(config, locations, write=True):
         palette = themes[look['theme']]
         projects.append({'id': project['id'], 'slot': project['slot'], 'asset': key,
                          'colors': palette['colors'], 'shell': palette['shell']})
+    if not preload:
+        return
     scene = {'version': 1, 'projects': projects, 'assets': list(assets.values()), 'themes': themes,
              'duration': config.get('workspace_transition', {}).get('duration_ms', 200),
              'style': config.get('workspace_transition', {}).get('style', 'slide')}

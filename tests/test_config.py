@@ -117,6 +117,24 @@ class ConfigTests(unittest.TestCase):
                 reload.assert_not_called()
                 self.assertEqual(locations['config'].read_text(), original)
 
+    def test_failed_reload_restores_normalized_palette_config_and_scene(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            locations = project.paths(temporary)
+            locations['config'].parent.mkdir(parents=True)
+            original = json.dumps(self.config)
+            locations['config'].write_text(original)
+            locations['state'].mkdir(parents=True)
+            (locations['state'] / 'config.lua').write_text('return {previous=true}\n')
+            (locations['state'] / 'scene.json').write_text('{"previous":true}')
+            def prepare(config, locations, write=False):
+                config['projects'][0]['name'] = 'Normalized fixture'
+                return {'new': True}
+            with patch.object(project, 'prepare_assets', side_effect=prepare), patch.object(project, 'hyprctl', side_effect=['ok', 'config error', 'ok']):
+                with self.assertRaises(project.ProjectError):
+                    project.reload_config(locations)
+            self.assertEqual(locations['config'].read_text(), original)
+            self.assertEqual((locations['state'] / 'scene.json').read_text(), '{"previous":true}')
+
 
 if __name__ == "__main__":
     unittest.main()
