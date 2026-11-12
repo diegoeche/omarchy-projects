@@ -6,7 +6,9 @@ Run the commands in README.md. None of these tests modify the current desktop.
 
 On an Omarchy machine, `python3 tests/qml_smoke.py` additionally loads the actual
 widget and Omarchy UI components offscreen. It checks that labels exist and
-markup is rendered as plain text, without opening a desktop window.
+markup is rendered as plain text, without opening a desktop window. Synthetic
+icons cover text/icon/both labels, image loading, missing-image fallback,
+rejection of remote image URLs, and literal names in icon-only tooltips.
 
 `python3 tests/scene_smoke.py` uses synthetic images in an offscreen window. It
 checks ready images, shared moving wallpaper edges, latest-destination queuing,
@@ -16,8 +18,14 @@ motion, and preserving an explicit manual wallpaper preview.
 
 ## Verified on 2026-11-12
 
-- 40 Python tests and 22 controller behavior tests passed.
+- 42 Python tests and 23 controller behavior tests passed.
 - Offscreen QML loading and literal markup labels passed against installed Omarchy.
+- Icon-only labels loaded on both live bars using durable local PNG/SVG files.
+  The widget reported normal geometry with no image-size binding loops.
+- Pointer warping was reproduced during a project switch. After the fix,
+  three native switches retained exact pointer coordinates from both bar
+  positions and inside a window, preserved the focused monitor, and left the
+  ordinary cursor-warp settings unchanged.
 - On a two-monitor Omarchy 4.5.0-3 / Hyprland 0.56.2 desktop, switching from either
   monitor synchronized both screens and preserved the focused monitor.
 - Disposable Foot windows verified silent and following project moves, external

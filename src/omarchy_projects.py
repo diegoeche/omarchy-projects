@@ -1,6 +1,7 @@
 """Configuration and CLI for Omarchy Projects. Standard library only."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,14 @@ IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{0,39}\Z")
 
 class ProjectError(Exception):
     pass
+
+
+def validate_icon(value):
+    if (not isinstance(value, str) or not 1 <= len(value) <= 4096
+            or any(ord(char) < 32 for char in value)
+            or not (value.startswith('/') or value.startswith('~/'))
+            or Path(value).suffix.lower() not in {'.png', '.svg', '.ico', '.jpg', '.jpeg', '.webp', '.avif', '.bmp'}):
+        raise ProjectError("icon must be an absolute or ~/ local image path (PNG, SVG, ICO, JPEG, WebP, AVIF, BMP)")
 
 
 def paths(home=None):
@@ -52,8 +61,8 @@ def validate(value):
     ids, slots, result = set(), set(), []
     for project in projects:
         if (not isinstance(project, dict) or not {"id", "name", "slot"} <= set(project)
-                or set(project) - {"id", "name", "slot", "appearance"}):
-            raise ProjectError("each project needs id, name, slot, and optionally appearance")
+                or set(project) - {"id", "name", "slot", "appearance", "icon", "label"}):
+            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon, label")
         ident, name, slot = (project[k] for k in ("id", "name", "slot"))
         if not isinstance(ident, str) or not IDENTIFIER.fullmatch(ident):
             raise ProjectError("project ids must use lowercase letters, digits, - or _")
@@ -67,6 +76,13 @@ def validate(value):
         slots.add(slot)
         if "appearance" in project:
             validate_appearance(project["appearance"])
+        if "icon" in project:
+            validate_icon(project["icon"])
+        if "label" in project:
+            if project["label"] not in ("text", "icon", "both"):
+                raise ProjectError("label must be text, icon, or both")
+            if project["label"] != "text" and "icon" not in project:
+                raise ProjectError("icon and both labels need an icon path")
         result.append(dict(project))
     monitors = value.get("monitors", [])
     if not isinstance(monitors, list) or any(
@@ -198,6 +214,41 @@ def set_transition(config, locations, direction, duration=None):
     print("Workspace transition: " + direction + " (" + str(config["workspace_transition"]["duration_ms"]) + " ms)")
 
 
+def icon_command(args, config, locations):
+    project = select_project(config, args.project)
+    if args.clear:
+        if args.file or args.label:
+            raise ProjectError("--clear cannot be combined with an icon file or --label")
+        project.pop("icon", None)
+        project.pop("label", None)
+    elif args.file:
+        source = Path(args.file).expanduser().resolve(strict=True)
+        validate_icon(str(source))
+        if not source.is_file() or source.stat().st_size > 4 * 1024 * 1024:
+            raise ProjectError("icon must be an image file no larger than 4 MiB")
+        data = source.read_bytes()
+        target = locations["data"] / "icons" / (project["id"] + '-' + hashlib.sha256(data).hexdigest()[:16] + source.suffix.lower())
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor, temporary = tempfile.mkstemp(prefix='.icon-', dir=target.parent)
+        try:
+            with os.fdopen(descriptor, 'wb') as stream:
+                stream.write(data)
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        project["icon"] = str(target)
+        project["label"] = args.label or "icon"
+    elif args.label:
+        project["label"] = args.label
+    else:
+        print(project.get("label", "both" if project.get("icon") else "text") + ": " + project.get("icon", project["name"]))
+        return
+    validate(config)
+    save_config_change(config, locations)
+    print("Updated label for " + project["name"])
+
+
 def appearance_command(args, config, locations):
     if args.appearance_action == "apply":
         apply_requested(locations, load_config)
@@ -314,6 +365,11 @@ def main(argv=None):
     transition = commands.add_parser("transition", help="choose vertical or horizontal workspace scrolling")
     transition.add_argument("direction", nargs="?", choices=["horizontal", "vertical", "fade"])
     transition.add_argument("--duration-ms", type=int, help="animation duration, 80–300 milliseconds")
+    icon = commands.add_parser("icon", help="configure a project's favicon/image label")
+    icon.add_argument("project")
+    icon.add_argument("file", nargs="?", help="local image to copy into project data")
+    icon.add_argument("--label", choices=["text", "icon", "both"], help="display mode (defaults to icon with a new image)")
+    icon.add_argument("--clear", action="store_true", help="remove the icon and show the project name")
     monitor = commands.add_parser("monitor", help="move the active window to a neighboring screen in the same project")
     monitor.add_argument("direction", choices=["l", "r", "u", "d"])
     appearance = commands.add_parser("appearance", help="configure each project's theme and wallpaper")
@@ -336,7 +392,9 @@ def main(argv=None):
         if args.config and args.command not in {"list", "check"}:
             raise ProjectError("--config is only supported by list and check; install to activate a config")
         config = load_config(args.config or locations["config"])
-        if args.command == "transition":
+        if args.command == "icon":
+            icon_command(args, config, locations)
+        elif args.command == "transition":
             current = config.get("workspace_transition", {"style": "slide", "duration_ms": 200})
             direction = args.direction or {"slide": "horizontal", "slidevert": "vertical", "fade": "fade"}[current["style"]]
             if args.direction or args.duration_ms is not None:

@@ -1,5 +1,5 @@
 local failures, passes = 0, 0
-local events, timers, monitors, windows, focused, active, calls, bases, tearing, spawned
+local events, timers, monitors, windows, focused, active, calls, bases, tearing, spawned, pointer
 
 local function equal(actual, expected)
   assert(actual == expected, 'expected ' .. tostring(expected) .. ', got ' .. tostring(actual))
@@ -18,6 +18,7 @@ local function fixture(options)
     { name = 'right', description = 'Right Display', id = 1, active_workspace = { id = 41 } },
   }
   focused = monitors[2]
+  pointer = options and options.pointer or nil
   local function find(name)
     for _, monitor in ipairs(monitors) do
       if monitor.name == name or 'desc:' .. monitor.description == name then return monitor end
@@ -32,6 +33,7 @@ local function fixture(options)
     focused = monitor
     monitor.active_workspace = { id = bases[name] + slot }
     calls[#calls + 1] = { slot = slot, name = name }
+    if pointer then pointer = { x = monitor.id * 1000 + 500, y = 500 } end
     emit('workspace.active', monitor.active_workspace)
   end
   hl = {
@@ -43,6 +45,7 @@ local function fixture(options)
     end,
     get_active_monitor = function() return focused end,
     get_active_window = function() return active end,
+    get_cursor_pos = function() return pointer and { x = pointer.x, y = pointer.y } end,
     on = function(event, callback)
       events[event] = events[event] or {}
       table.insert(events[event], callback)
@@ -51,11 +54,13 @@ local function fixture(options)
     exec_cmd = function(command) spawned[#spawned + 1] = command end,
     unbind = function() end,
     dsp = {
+      cursor = { move = function(options) return { kind = 'cursor', options = options } end },
       global = function(name) return { kind = 'global', name = name } end,
       focus = function(options) return { kind = 'focus', options = options } end,
       window = { move = function(options) return { kind = 'move', options = options } end },
     },
     dispatch = function(dispatch)
+      if dispatch.kind == 'cursor' then pointer = { x = dispatch.options.x, y = dispatch.options.y } end
       if dispatch.kind == 'global' then calls[#calls + 1] = dispatch end
       if dispatch.kind == 'focus' then focused = assert(find(dispatch.options.monitor)) end
       if dispatch.kind == 'move' then
@@ -115,6 +120,18 @@ test('switch uses saved mappings and preserves the focused screen', function()
   equal(monitors[2].active_workspace.id, 43)
   equal(focused.name, 'right')
   equal(controller.current().id, 'boreal')
+end)
+
+test('project switching preserves pointer coordinates despite native workspace warps', function()
+  local controller = fixture({ pointer = { x = 1240, y = 14 } })
+  controller.show('boreal')
+  equal(pointer.x, 1240)
+  equal(pointer.y, 14)
+  equal(focused.name, 'right')
+  controller.show('personal')
+  equal(pointer.x, 1240)
+  equal(pointer.y, 14)
+  equal(focused.name, 'right')
 end)
 
 test('rapid switches cannot leave mismatched projects', function()
@@ -304,12 +321,16 @@ test('published names round trip as JSON data, including markup', function()
   local file = os.tmpname()
   local controller, _, config = fixture({ state_file = file })
   config.projects[1].name = 'München " <img src="https://invalid.test/x">'
+  config.projects[1].icon = '/tmp/quoted " icon.svg'
+  config.projects[1].label = 'icon'
   controller.publish()
   local stream = assert(io.open(file))
   local output = stream:read('*a')
   stream:close()
   assert(output:find('\\"', 1, true))
   assert(output:find('"boreal":43', 1, true))
+  assert(output:find('"icon":"/tmp/quoted \\" icon.svg"', 1, true))
+  assert(output:find('"label":"icon"', 1, true))
   os.remove(file)
 end)
 

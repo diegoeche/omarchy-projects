@@ -22,10 +22,16 @@ def main():
         (target / "plugin").symlink_to(ROOT / "plugin")
         state = target / "state/omarchy-projects"
         state.mkdir(parents=True)
+        icon = target / 'fixture " icon.svg'
+        icon.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#aabbcc"/></svg>')
         (state / "view.json").write_text(json.dumps({
             "version": 1, "projects": [
                 {"id": "atlas", "name": "Atlas", "slot": 1},
-                {"id": "literal", "name": '<img src="https://invalid.test/x">', "slot": 2},
+                {"id": "literal", "name": '<img src="https://invalid.test/x">', "slot": 2, "icon": str(icon), "label": "both"},
+                {"id": "badge", "name": "Icon only", "slot": 3, "icon": str(icon), "label": "icon"},
+                {"id": "missing", "name": "Missing icon", "slot": 4, "icon": str(target / 'missing.svg'), "label": "icon"},
+                {"id": "remote", "name": "Blocked remote", "slot": 5, "icon": "https://invalid.test/icon.png", "label": "icon"},
+                {"id": "tooltip", "name": '<img src="https://invalid.test/x">', "slot": 6, "icon": str(icon), "label": "icon"},
             ], "monitors": [],
         }))
         (target / "shell.qml").write_text('''import QtQuick
@@ -36,8 +42,9 @@ Scope {
   Timer {
     interval: 500; running: true
     onTriggered: {
-      var labels=[]
+      var labels=[], objects={}
       function scan(item) {
+        if (item.objectName) objects[item.objectName] = item
         if (item.textFormat !== undefined && item.text !== undefined) {
           if (item.textFormat !== Text.PlainText) throw new Error("Non-plain label")
           labels.push(item.text)
@@ -47,6 +54,16 @@ Scope {
       scan(projects)
       if (labels.indexOf("Atlas")<0 || labels.indexOf('<img src="https://invalid.test/x">')<0)
         throw new Error("Missing literal labels: "+JSON.stringify(labels))
+      if (objects["project-label-badge"].visible || !objects["project-icon-badge"].visible
+          || objects["project-icon-badge"].status !== Image.Ready) throw new Error("Icon-only label failed")
+      if (!objects["project-label-literal"].visible || !objects["project-icon-literal"].visible)
+        throw new Error("Combined icon/text label failed")
+      if (!objects["project-label-missing"].visible || objects["project-icon-missing"].visible)
+        throw new Error("Missing image did not fall back to text")
+      if (String(objects["project-icon-remote"].source) !== "" || !objects["project-label-remote"].visible)
+        throw new Error("An untrusted icon URL reached the image loader")
+      var tooltip = objects["project-icon-tooltip"].parent.parent.tooltipText
+      if (tooltip !== '<img src="https://invalid.test/x">') throw new Error("Icon-only tooltip lost its literal name")
       console.log("PROJECTS_QML_PASS")
       Qt.quit()
     }
@@ -57,9 +74,9 @@ Scope {
         result = subprocess.run(["quickshell", "--no-color", "-p", str(target)],
                                 env=environment, capture_output=True, text=True, timeout=10)
         output = result.stdout + result.stderr
-        if result.returncode or "PROJECTS_QML_PASS" not in output:
+        if result.returncode or "PROJECTS_QML_PASS" not in output or "Binding loop detected" in output:
             raise SystemExit(output)
-        print("PASS native QML loading and literal markup labels")
+        print("PASS native QML: text/icon/both labels, local sources, literal names, and missing-image fallback")
 
 
 if __name__ == "__main__":

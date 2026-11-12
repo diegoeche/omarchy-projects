@@ -107,6 +107,28 @@ The layer asks Omarchy for the mapping rather than assuming those numbers.
 Changing a slot assigns that name to a different existing workspace; it does
 not migrate windows. Keep slots stable and change names freely.
 
+### Text and favicon labels
+
+Project labels can show their name, a local image, or both:
+
+```sh
+omarchy-projects icon atlas ~/Pictures/atlas.png       # favicon-only
+omarchy-projects icon atlas --label both              # image + name
+omarchy-projects icon atlas --label text              # name only
+omarchy-projects icon atlas --clear                   # remove icon setting
+```
+
+The image is copied into the local project data directory. PNG, SVG, ICO, JPEG,
+WebP, AVIF, and BMP files are supported, up to 4 MiB through the CLI. Favicons
+stay local; the bar does not download icons while running.
+
+Or configure `"icon": "~/Pictures/atlas.png"` and `"label": "icon"` on a project
+in `projects.json`, then reload. `label` accepts `text`, `icon`, or `both`; an
+icon without an explicit label mode defaults to `both`. A missing or unreadable
+image falls back to the project name. Icon-only labels retain their name in the
+hover tooltip and accessibility label, and show a dot when active. Project IDs,
+workspace slots, and shortcuts keep their existing behavior.
+
 ### Workspace transitions
 
 For a short horizontal slide, add this top-level setting to `projects.json`,
@@ -188,6 +210,11 @@ Switching projects finishes on the monitor you were using. The numbered
 shortcuts replace stock bindings only for configured slots; other number keys
 remain available. Window focus, window swaps, layouts, scratchpad, and normal
 monitor-focus shortcuts continue to use Omarchy.
+
+Project switching also preserves the pointer's screen coordinates. Omarchy's
+focus helper can warp it while visiting each monitor, so the layer restores its
+position inside the same compositor event. Ordinary cursor-warp preferences
+outside project switching remain unchanged.
 
 The stock `Super+Shift+Alt+Arrow` whole-workspace moves are unbound while the
 layer is enabled: moving a raw workspace would change its project association.

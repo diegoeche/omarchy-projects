@@ -80,7 +80,9 @@ function M.publish()
   local projects, monitors = {}, {}
   for _, project in ipairs(config.projects) do
     projects[#projects + 1] = '{"id":' .. json_string(project.id)
-      .. ',"name":' .. json_string(project.name) .. ',"slot":' .. project.slot .. '}'
+      .. ',"name":' .. json_string(project.name) .. ',"slot":' .. project.slot
+      .. (project.icon and ',"icon":' .. json_string(project.icon) or '')
+      .. (project.label and ',"label":' .. json_string(project.label) or '') .. '}'
   end
   for _, monitor in ipairs(M.monitors()) do
     local workspaces = {}
@@ -159,6 +161,7 @@ function M.commit(id, managed)
   if #monitors == 0 then return false end
   local focused = hl.get_active_monitor()
   local origin = focused and focused.name
+  local pointer = hl.get_cursor_pos()
   local old = M.current() or selected
   if old and old ~= project then previous = old end
   busy = true
@@ -190,8 +193,18 @@ function M.commit(id, managed)
       end
     end
   end)
+  -- Omarchy's focus helper may warp to each monitor/workspace's focused
+  -- window. Put the pointer back before this compositor event is presented,
+  -- rather than changing the user's ordinary cursor-warp preferences.
+  local pointer_ok, pointer_err = pcall(function()
+    local current = pointer and hl.get_cursor_pos()
+    if current and (current.x ~= pointer.x or current.y ~= pointer.y) then
+      hl.dispatch(hl.dsp.cursor.move({ x = pointer.x, y = pointer.y }))
+    end
+  end)
   busy = false
   if not ok then error(err) end
+  if not pointer_ok then error(pointer_err) end
   selected = project
   if managed == true then
     -- The shell may advance its shared wallpaper clock only after every

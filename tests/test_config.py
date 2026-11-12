@@ -28,6 +28,43 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(project.ProjectError):
             project.validate(self.config)
 
+    def test_icon_labels_allow_local_images_and_reject_network_sources(self):
+        row = dict(self.config['projects'][0], icon='~/Pictures/project icon.svg', label='icon')
+        for mode in ('text', 'icon', 'both'):
+            value = dict(self.config, projects=[dict(row, label=mode)])
+            self.assertEqual(project.validate(value)['projects'][0], value['projects'][0])
+        for icon in ('https://invalid.test/icon.png', 'file:///tmp/a.png', 'data:image/png;base64,x',
+                     'relative/icon.png', '/tmp/icon.png\n', 4):
+            with self.subTest(icon=icon), self.assertRaises(project.ProjectError):
+                project.validate(dict(self.config, projects=[dict(row, icon=icon)]))
+        for bad in (dict(row, label='unknown'), dict(self.config['projects'][0], label='icon')):
+            with self.assertRaises(project.ProjectError):
+                project.validate(dict(self.config, projects=[bad]))
+
+    def test_icon_cli_keeps_a_durable_copy_and_can_change_label_or_clear(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            locations = project.paths(temporary)
+            locations['config'].parent.mkdir(parents=True)
+            locations['config'].write_text(json.dumps(self.config))
+            source = Path(temporary) / 'quoted " icon.svg'
+            image = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="red"/></svg>'
+            source.write_text(image)
+            with patch.object(project, 'paths', return_value=locations), patch.object(project, 'reload_config'), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(project.main(['icon', 'atlas', str(source)]), 0)
+                saved = project.load_config(locations['config'])['projects'][0]
+                self.assertEqual(saved['label'], 'icon')
+                copied = Path(saved['icon'])
+                source.unlink()
+                self.assertEqual(copied.read_text(), image)
+                self.assertEqual(project.main(['icon', 'atlas', '--label', 'both']), 0)
+                self.assertEqual(project.load_config(locations['config'])['projects'][0]['label'], 'both')
+                self.assertEqual(project.main(['icon', 'atlas', '--clear']), 0)
+                cleared = project.load_config(locations['config'])['projects'][0]
+                self.assertNotIn('icon', cleared)
+                self.assertNotIn('label', cleared)
+                self.assertEqual(cleared['name'], 'Atlas')
+                self.assertEqual(cleared['slot'], 1)
+
     def test_lua_serialization_round_trip(self):
         value = 'München " \\ \n123 <img src="https://invalid.test/x"> $(touch /tmp/not-a-command)'
         script = "io.write(" + project.lua(value) + ")"
