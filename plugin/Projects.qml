@@ -12,6 +12,7 @@ BarWidget {
   property var view: ({ projects: [], monitors: [] })
   property bool opened: false
   readonly property var appsProject: root.currentProject()
+  readonly property bool hasApps: appsProject !== null && appsProject.app_count > 0
   onAppsProjectChanged: close()
 
   function open() {
@@ -129,7 +130,7 @@ BarWidget {
 
   GridLayout {
     id: grid
-    columns: root.vertical ? 1 : Math.max(1, root.view.projects.length + root.extraWorkspaces().length + 1)
+    columns: root.vertical ? 1 : Math.max(1, root.view.projects.length + root.extraWorkspaces().length + (root.hasApps ? 1 : 0))
     columnSpacing: root.vertical ? 0 : Style.space(1)
     rowSpacing: root.vertical ? Style.space(2) : 0
 
@@ -242,8 +243,9 @@ BarWidget {
     WidgetButton {
       id: appsButton
       objectName: "project-apps-button"
-      readonly property var project: root.currentProject()
+      readonly property var project: root.appsProject
       readonly property bool available: project !== null && project.app_count > 0
+      visible: available
       bar: root.bar
       text: root.vertical ? "󰀻" : strings.t("apps.label")
       tooltipText: !project ? strings.t("apps.chooseProject")
@@ -251,7 +253,6 @@ BarWidget {
       Accessible.name: project ? strings.t("apps.title").arg(project.name) : strings.t("apps.accessible")
       Accessible.role: Accessible.Button
       interactive: available
-      opacity: available ? 1 : 0.5
       horizontalMargin: 7
       fixedHeight: root.barSize
       onPressed: {

@@ -77,11 +77,11 @@ Scope {
       if (!objects["project-emoji-composed"].visible || !objects["project-label-composed"].visible
           || objects["project-emoji-composed"].text !== "👩‍💻") throw new Error("Composed emoji and text label failed")
       var apps = objects["project-apps-button"]
-      if (!apps.available || !apps.interactive || apps.project.id !== "badge"
+      if (!apps.available || !apps.visible || !apps.interactive || apps.project.id !== "badge"
           || apps.tooltipText !== "Icon only apps") throw new Error("Apps did not follow the selected project")
       fixture.selectedProject = "tooltip"
       Qt.callLater(function() {
-        if (apps.available || apps.interactive || apps.project.id !== "tooltip"
+        if (apps.available || apps.visible || apps.interactive || apps.project.id !== "tooltip"
             || apps.tooltipText !== 'No applications configured for <img src="https://invalid.test/x">')
           throw new Error("Empty apps state or literal project tooltip failed")
         console.log("PROJECTS_QML_PASS")

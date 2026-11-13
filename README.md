@@ -163,8 +163,8 @@ keep their own profiles, login sessions, icons, and launch arguments.
 
 Selecting an app brings its existing window into this project, keeping it on
 its physical monitor, or launches it if it is closed. The menu does not start
-apps automatically when switching projects. A project with no configured apps
-has a dimmed Apps button.
+apps automatically when switching projects. The Apps button is hidden when the
+selected project has no configured apps.
 
 Window matching uses the launcher's `StartupWMClass`. For separate profiles of
 an app that share a window class, add an exact environment match:
