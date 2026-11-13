@@ -79,12 +79,17 @@ function M.publish()
   if not config.state_file then return end
   local projects, monitors = {}, {}
   for _, project in ipairs(config.projects) do
+    local apps = {}
+    for _, app in ipairs(project.apps or {}) do
+      apps[#apps + 1] = '{"id":' .. json_string(app.id) .. ',"name":' .. json_string(app.name)
+        .. ',"desktop":' .. json_string(app.desktop) .. '}'
+    end
     projects[#projects + 1] = '{"id":' .. json_string(project.id)
       .. ',"name":' .. json_string(project.name) .. ',"slot":' .. project.slot
       .. (project.icon and ',"icon":' .. json_string(project.icon) or '')
       .. (project.emoji and ',"emoji":' .. json_string(project.emoji) or '')
       .. (project.label and ',"label":' .. json_string(project.label) or '')
-      .. ',"app_count":' .. #(project.apps or {}) .. '}'
+      .. ',"app_count":' .. #(project.apps or {}) .. ',"apps":' .. json_array(apps) .. '}'
   end
   for _, monitor in ipairs(M.monitors()) do
     local workspaces = {}

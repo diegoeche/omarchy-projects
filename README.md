@@ -144,8 +144,10 @@ file and keep the same name tooltip and active indicator.
 
 ### Project applications
 
-The **Apps** button beside the project labels opens the selected project's
-applications. Add an `apps` list to a project in `projects.json`, then run
+The **Apps** button beside the project labels opens a dropdown of the selected
+project's applications, using each desktop launcher's actual icon. The dropdown
+supports mouse selection, Up/Down or j/k, Enter, and Escape. Add an `apps` list
+to a project in `projects.json`, then run
 `omarchy-projects reload`:
 
 ```json
@@ -186,7 +188,7 @@ for compositor events only while a window is starting, for up to 20 seconds.
 
 ```sh
 omarchy-projects apps                         # menu for the selected project
-omarchy-projects apps menu atlas              # menu for an explicit project
+omarchy-projects apps menu atlas              # switch to Atlas and open its menu
 omarchy-projects apps list atlas              # configured entries as JSON
 omarchy-projects apps launch chat             # activate one configured app
 omarchy-projects apps launch editor --project atlas

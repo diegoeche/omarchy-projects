@@ -10,6 +10,26 @@ BarWidget {
   id: root
   moduleName: "diegoeche.projects"
   property var view: ({ projects: [], monitors: [] })
+  property bool opened: false
+  readonly property var appsProject: root.currentProject()
+  onAppsProjectChanged: close()
+
+  function open() {
+    if (!root.bar || !appsProject || appsProject.app_count <= 0) return
+    if (!appsMenuLoader.item) {
+      appsMenuLoader.setSource(Qt.resolvedUrl("ProjectApps.qml"), {
+        anchorItem: appsButton, bar: root.bar, owner: root,
+        open: Qt.binding(function() { return root.opened }),
+        project: Qt.binding(function() { return root.appsProject }),
+        title: Qt.binding(function() {
+          return root.appsProject ? strings.t("apps.title").arg(root.appsProject.name) : strings.t("apps.accessible")
+        })
+      })
+    }
+    if (appsMenuLoader.item) opened = true
+  }
+  function close() { opened = false }
+  function toggle() { opened ? close() : open() }
 
   Translations {
     id: strings
@@ -235,9 +255,19 @@ BarWidget {
       horizontalMargin: 7
       fixedHeight: root.barSize
       onPressed: {
-        if (available && root.bar)
-          root.bar.run("omarchy-projects apps menu " + Util.shellQuote(project.id))
+        if (available) root.toggle()
       }
+    }
+  }
+
+  Loader {
+    id: appsMenuLoader
+    onLoaded: {
+      item.chosen.connect(function(projectId, appId) {
+        root.close()
+        if (root.bar) root.bar.run("omarchy-projects apps launch " + Util.shellQuote(appId)
+          + " --project " + Util.shellQuote(projectId))
+      })
     }
   }
 }

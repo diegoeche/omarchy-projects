@@ -14,7 +14,7 @@ from project_assets import prepare_assets
 START = "-- >>> omarchy-projects >>>"
 END = "-- <<< omarchy-projects <<<"
 PLUGIN = "diegoeche.projects"
-PLUGIN_FILES = ("manifest.json", "Projects.qml", "i18n/en.json")
+PLUGIN_FILES = ("manifest.json", "Projects.qml", "ProjectApps.qml", "i18n/en.json")
 BACKGROUND = "diegoeche.background"
 BACKGROUND_FILES = ("ProjectMotion.js", "ProjectWallpapers.qml", "ProjectScene.qml", "Background.qml", "manifest.json")
 THEME_HELPERS = ("omarchy-restart-hyprctl", "omarchy-theme-set-templates", "omarchy-shell")

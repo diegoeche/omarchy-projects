@@ -380,17 +380,15 @@ def apps_command(args, config, locations):
         return
     if not apps:
         raise ProjectError("no applications configured for " + project["name"])
-    # Prefixing the icon also keeps an app named '--' out of menu argument parsing.
-    choices = ["󰀻\t" + app["name"] for app in apps]
-    result = subprocess.run(["omarchy", "menu", "select", project["name"] + " apps", *choices,
-                             "--", "--width", "360", "--maxheight", "420"],
+    if not project_is_selected(project, locations):
+        with AppEvents() as events:
+            call("show", project["id"])
+            events.wait(lambda: project_is_selected(project, locations), 3,
+                        "could not switch to " + project["name"])
+    result = subprocess.run(["omarchy-shell", "shell", "summon", "diegoeche.projects", "{}"],
                             capture_output=True, text=True)
-    if result.returncode:
-        return
-    name = result.stdout.rstrip("\r\n")
-    app = next((item for item in apps if item["name"] == name), None)
-    if app:
-        launch_project_app(project, app["id"], locations)
+    if result.returncode or result.stdout.strip() != "ok":
+        raise ProjectError("project Apps menu is unavailable; install the widget and run omarchy restart shell")
 
 
 def save_config_change(config, locations):

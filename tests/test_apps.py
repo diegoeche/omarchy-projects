@@ -131,21 +131,27 @@ class ProjectAppsTests(unittest.TestCase):
                         events.wait(lambda: None, 1, "fixture timed out")
                 connection.close.assert_called_once()
 
-    def test_native_menu_preserves_literal_labels_and_selects_stable_app_id(self):
+    def test_native_menu_opens_widget_without_putting_labels_in_shell_commands(self):
         self.project["apps"][0]["name"] = '<img src="https://invalid.test/x">'
         args = argparse.Namespace(project="atlas", apps_action="menu")
-        result = subprocess.CompletedProcess([], 0, self.project["apps"][0]["name"] + "\n", "")
-        with patch.object(projects.subprocess, "run", return_value=result) as menu, patch.object(projects, "launch_project_app") as launch:
+        result = subprocess.CompletedProcess([], 0, "ok\n", "")
+        with (patch.object(projects.subprocess, "run", return_value=result) as menu,
+              patch.object(projects, "project_is_selected", return_value=True),
+              patch.object(projects, "launch_project_app") as launch):
             projects.apps_command(args, self.config, {})
-            self.assertIn("󰀻\t" + self.project["apps"][0]["name"], menu.call_args.args[0])
-            launch.assert_called_once_with(self.project, "chat", {})
+            self.assertEqual(menu.call_args.args[0],
+                             ["omarchy-shell", "shell", "summon", "diegoeche.projects", "{}"])
+            launch.assert_not_called()
 
-    def test_cancelled_or_unknown_menu_selection_never_launches_an_app(self):
+    def test_unavailable_widget_reports_error_without_launching_an_app(self):
         args = argparse.Namespace(project="atlas", apps_action="menu")
         for result in [subprocess.CompletedProcess([], 1, "", ""),
                        subprocess.CompletedProcess([], 0, "unknown\n", "")]:
-            with patch.object(projects.subprocess, "run", return_value=result), patch.object(projects, "launch_project_app") as launch:
-                projects.apps_command(args, self.config, {})
+            with (patch.object(projects.subprocess, "run", return_value=result),
+                  patch.object(projects, "project_is_selected", return_value=True),
+                  patch.object(projects, "launch_project_app") as launch):
+                with self.assertRaises(projects.ProjectError):
+                    projects.apps_command(args, self.config, {})
                 launch.assert_not_called()
 
     def test_cli_lists_only_requested_project_apps_without_compositor_access(self):
