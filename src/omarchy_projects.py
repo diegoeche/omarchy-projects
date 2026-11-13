@@ -41,6 +41,14 @@ def validate_emoji(value):
         raise ProjectError("emoji must be a short glyph or emoji sequence without whitespace/control characters")
 
 
+def validate_environment(env, label):
+    if (not isinstance(env, dict) or not 1 <= len(env) <= 8
+            or any(not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
+                   or not isinstance(item, str) or not 1 <= len(item) <= 4096
+                   or any(ord(char) < 32 for char in item) for key, item in env.items())):
+        raise ProjectError(label + " needs 1–8 environment names with nonempty literal values")
+
+
 def validate_apps(value):
     if not isinstance(value, list) or len(value) > 24:
         raise ProjectError("apps must be a list of up to 24 application entries")
@@ -72,12 +80,7 @@ def validate_apps(value):
                     or any(ord(char) < 32 for char in match["class"])):
                 raise ProjectError("app match class must be a window class name")
             if "env" in match:
-                env = match["env"]
-                if (not isinstance(env, dict) or not 1 <= len(env) <= 8
-                        or any(not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
-                               or not isinstance(item, str) or not 1 <= len(item) <= 4096
-                               or any(ord(char) < 32 for char in item) for key, item in env.items())):
-                    raise ProjectError("app match env needs 1–8 environment names with nonempty literal values")
+                validate_environment(match["env"], "app match env")
 
 
 def paths(home=None):
@@ -110,8 +113,8 @@ def validate(value):
     ids, slots, result = set(), set(), []
     for project in projects:
         if (not isinstance(project, dict) or not {"id", "name", "slot"} <= set(project)
-                or set(project) - {"id", "name", "slot", "appearance", "icon", "emoji", "label", "apps"}):
-            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon/emoji, label, apps")
+                or set(project) - {"id", "name", "slot", "appearance", "icon", "emoji", "label", "apps", "window_env"}):
+            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon/emoji, label, apps, window_env")
         ident, name, slot = (project[k] for k in ("id", "name", "slot"))
         if not isinstance(ident, str) or not IDENTIFIER.fullmatch(ident):
             raise ProjectError("project ids must use lowercase letters, digits, - or _")
@@ -127,6 +130,8 @@ def validate(value):
             validate_appearance(project["appearance"])
         if "apps" in project:
             validate_apps(project["apps"])
+        if "window_env" in project:
+            validate_environment(project["window_env"], "window_env")
         if "icon" in project:
             validate_icon(project["icon"])
         if "emoji" in project:
@@ -218,6 +223,9 @@ def atomic_write(path, content, mode=0o600):
 def compile_config(config, locations):
     data = dict(config, state_file=str(locations["state"] / "view.json"),
                 history_file=str(locations["state"] / "history"))
+    data["projects"] = [dict(project, window_env={key: os.path.expanduser(value)
+                        for key, value in project["window_env"].items()})
+                        if "window_env" in project else dict(project) for project in config["projects"]]
     if any("appearance" in project for project in config["projects"]):
         data["appearance_request_file"] = str(locations["state"] / "appearance-request.json")
         data["appearance_command"] = shlex.join([

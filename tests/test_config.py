@@ -41,6 +41,18 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(project.ProjectError):
                 project.validate(dict(self.config, projects=[bad]))
 
+    def test_window_inheritance_requires_bounded_literal_environment_matches(self):
+        row = dict(self.config['projects'][0], window_env={'PROJECT_PROFILE': '~/profiles/atlas'})
+        config = dict(self.config, projects=[row])
+        self.assertEqual(project.validate(config)['projects'][0], row)
+        compiled = project.compile_config(config, project.paths('/tmp/project-fixture'))
+        self.assertIn(project.lua(os.path.expanduser('~/profiles/atlas')), compiled)
+        self.assertEqual(row['window_env']['PROJECT_PROFILE'], '~/profiles/atlas')
+        for env in ({}, [], {'invalid=name': 'atlas'}, {'PROJECT': ''}, {'PROJECT': 'a\nb'},
+                    {'PROJECT': 2}, {'PROJECT': 'x' * 4097}, {str(i): 'x' for i in range(9)}):
+            with self.subTest(env=env), self.assertRaises(project.ProjectError):
+                project.validate(dict(self.config, projects=[dict(row, window_env=env)]))
+
     def test_icon_cli_keeps_a_durable_copy_and_can_change_label_or_clear(self):
         with tempfile.TemporaryDirectory() as temporary:
             locations = project.paths(temporary)

@@ -1,5 +1,15 @@
 local failures, passes = 0, 0
-local events, timers, monitors, windows, focused, active, calls, bases, tearing, spawned, pointer
+local events, timers, monitors, windows, focused, active, calls, bases, tearing, spawned, pointer, rules, process_files
+
+local real_open = io.open
+io.open = function(path, mode)
+  if path:match('^/proc/') then
+    local data = process_files and process_files[path]
+    if data == nil then return nil end
+    return { read = function(_, size) return data:sub(1, size) end, close = function() end }
+  end
+  return real_open(path, mode)
+end
 
 local function equal(actual, expected)
   assert(actual == expected, 'expected ' .. tostring(expected) .. ', got ' .. tostring(actual))
@@ -13,6 +23,7 @@ end
 
 local function fixture(options)
   events, timers, calls, windows, bases, tearing, spawned = {}, {}, {}, {}, { left = 0, right = 40 }, false, {}
+  rules, process_files = {}, {}
   monitors = {
     { name = 'left', description = 'Left Display', id = 0, active_workspace = { id = 1 } },
     { name = 'right', description = 'Right Display', id = 1, active_workspace = { id = 41 } },
@@ -45,6 +56,8 @@ local function fixture(options)
     end,
     get_active_monitor = function() return focused end,
     get_active_window = function() return active end,
+    get_windows = function() return windows end,
+    window_rule = function(rule) rules[rule.name] = rule end,
     get_window = function(selector)
       local address = selector:gsub('^address:', '')
       for _, window in ipairs(windows) do
@@ -64,9 +77,20 @@ local function fixture(options)
       cursor = { move = function(options) return { kind = 'cursor', options = options } end },
       global = function(name) return { kind = 'global', name = name } end,
       focus = function(options) return { kind = 'focus', options = options } end,
-      window = { move = function(options) return { kind = 'move', options = options } end },
+      window = {
+        move = function(options) return { kind = 'move', options = options } end,
+        tag = function(options) return { kind = 'tag', options = options } end,
+      },
     },
     dispatch = function(dispatch)
+      if dispatch.kind == 'tag' then
+        local window = assert(hl.get_window(dispatch.options.window))
+        local action, tag = dispatch.options.tag:sub(1, 1), dispatch.options.tag:sub(2)
+        local tags = {}
+        for _, value in ipairs(window.tags or {}) do if value ~= tag then tags[#tags + 1] = value end end
+        if action == '+' then tags[#tags + 1] = tag end
+        window.tags = tags
+      end
       if dispatch.kind == 'cursor' then pointer = { x = dispatch.options.x, y = dispatch.options.y } end
       if dispatch.kind == 'global' then calls[#calls + 1] = dispatch end
       if dispatch.kind == 'focus' then
@@ -446,6 +470,117 @@ test('wallpaper start is acknowledged only after all monitor workspaces have cha
   equal(calls[3].name, 'omarchy-projects:start-3')
   equal(monitors[1].active_workspace.id, 3)
   equal(monitors[2].active_workspace.id, 43)
+end)
+
+local function inheritance_fixture()
+  local projects = {
+    { id = 'atlas', name = 'Atlas', slot = 1, window_env = { PROJECT_PROFILE = 'atlas' } },
+    { id = 'boreal', name = 'Boreal', slot = 3, window_env = { PROJECT_PROFILE = 'boreal' } },
+  }
+  local controller, emit, config = fixture({ projects = projects, pointer = { x = 1200, y = 80 } })
+  local window = { address = '0x456', mapped = true, pid = 7001,
+    monitor = monitors[1], workspace = { id = 1 } }
+  windows = { window }
+  process_files['/proc/7001/environ'] = 'PROJECT_PROFILE=boreal\0'
+  return controller, emit, config, window
+end
+
+test('background children stay in their project without changing focus, pointer, or selected spaces', function()
+  local controller, emit, _, window = inheritance_fixture()
+  local original = active
+  emit('window.open_early', window)
+  equal(window.workspace.id, 3)
+  equal(window.monitor.name, 'left')
+  equal(active, original)
+  equal(focused.name, 'right')
+  equal(pointer.x, 1200)
+  equal(pointer.y, 80)
+  equal(monitors[1].active_workspace.id, 1)
+  equal(monitors[2].active_workspace.id, 41)
+  equal(#calls, 0)
+  equal(table.concat(window.tags, ','), 'omarchy-projects-owned,omarchy-projects-opening')
+  equal(rules['omarchy-projects-owned'].focus_on_activate, false)
+  equal(rules['omarchy-projects-opening'].no_focus, true)
+  flush()
+  equal(table.concat(window.tags, ','), 'omarchy-projects-owned')
+  -- Moving the window manually is respected; there is no recurring routing.
+  window.workspace = { id = 1 }
+  emit('window.move_to_workspace', window, window.workspace)
+  flush()
+  equal(window.workspace.id, 1)
+  equal(controller.current().id, 'atlas')
+end)
+
+test('inheritance uses the nearest process identity and follows a bounded parent chain', function()
+  local controller, _, _, window = inheritance_fixture()
+  process_files['/proc/7001/environ'] = 'OTHER=value\0'
+  process_files['/proc/7001/stat'] = '7001 (helper (test)) S 7002 0 0 0'
+  process_files['/proc/7002/environ'] = 'PROJECT_PROFILE=boreal\0'
+  equal(controller.route_window(window), true)
+  equal(window.workspace.id, 3)
+  window.workspace = { id = 1 }
+  process_files['/proc/7001/environ'] = 'PROJECT_PROFILE=atlas\0'
+  equal(controller.route_window(window), true)
+  equal(window.workspace.id, 1)
+  process_files['/proc/7001/environ'] = 'PROJECT_PROFILE=unmanaged\0'
+  equal(controller.route_window(window), false)
+  equal(window.workspace.id, 1)
+end)
+
+test('unknown, conflicting, unreadable and oversized identities are left alone', function()
+  for _, scenario in ipairs({ 'unknown', 'conflicting', 'unreadable', 'oversized', 'loop' }) do
+    local controller, _, config, window = inheritance_fixture()
+    if scenario == 'unknown' then process_files['/proc/7001/environ'] = 'PROJECT_PROFILE=other\0'
+    elseif scenario == 'conflicting' then config.projects[1].window_env = { PROJECT_PROFILE = 'boreal' }
+    elseif scenario == 'unreadable' then process_files['/proc/7001/environ'] = nil
+    elseif scenario == 'oversized' then process_files['/proc/7001/environ'] = string.rep('x', 1024 * 1024 + 1)
+    else
+      process_files['/proc/7001/environ'] = ''
+      process_files['/proc/7001/stat'] = '7001 (loop) S 7001 0 0 0'
+    end
+    equal(controller.route_window(window), false)
+    equal(window.workspace.id, 1)
+    equal(window.tags, nil)
+  end
+end)
+
+test('unmanaged, special, hidden, pinned and closed windows are not routed', function()
+  for _, scenario in ipairs({ 'unmanaged', 'special', 'hidden', 'pinned', 'closed' }) do
+    local controller, _, _, window = inheritance_fixture()
+    if scenario == 'unmanaged' then window.monitor = { name = 'outside' }
+    elseif scenario == 'special' then window.workspace.id = -99
+    elseif scenario == 'hidden' then window.hidden = true
+    elseif scenario == 'pinned' then window.pinned = true
+    else window.mapped = false end
+    equal(controller.route_window(window), false)
+    equal(window.tags, nil)
+  end
+end)
+
+test('foreground project windows keep normal focus and existing windows are never relocated on reload', function()
+  local controller, _, config, window = inheritance_fixture()
+  process_files['/proc/7001/environ'] = 'PROJECT_PROFILE=atlas\0'
+  equal(controller.route_window(window), true)
+  equal(table.concat(window.tags, ','), 'omarchy-projects-owned')
+  window.workspace = { id = 3 }
+  controller = dofile('hypr/controller.lua').setup(config)
+  equal(window.workspace.id, 3)
+  equal(table.concat(window.tags, ','), 'omarchy-projects-owned')
+end)
+
+test('reload clears temporary focus blocking and removes protection when a profile is disabled', function()
+  local controller, _, config, window = inheritance_fixture()
+  controller.route_window(window)
+  equal(table.concat(window.tags, ','), 'omarchy-projects-owned,omarchy-projects-opening')
+  controller = dofile('hypr/controller.lua').setup(config) -- before its timer runs
+  equal(table.concat(window.tags, ','), 'omarchy-projects-owned')
+  config.projects[2].window_env = nil
+  controller = dofile('hypr/controller.lua').setup(config)
+  equal(#window.tags, 0)
+  equal(window.workspace.id, 3)
+  config.projects[1].window_env = nil
+  controller = dofile('hypr/controller.lua').setup(config)
+  equal(#window.tags, 0)
 end)
 
 print(string.format('%d passed, %d failed', passes, failures))

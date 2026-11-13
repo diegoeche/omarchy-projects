@@ -142,6 +142,42 @@ automatically. Unicode emoji sequences, including variation selectors and
 joined emoji, are supported through the system emoji font. They need no image
 file and keep the same name tooltip and active indicator.
 
+### Windows opened by background projects
+
+Add `window_env` to a project to associate new windows with its processes,
+even when you switch to another project while a command builds or starts:
+
+```json
+{
+  "id": "atlas",
+  "name": "Atlas",
+  "slot": 1,
+  "window_env": { "PROJECT_PROFILE": "atlas" }
+}
+```
+
+Launch the project's terminal, editor, or command with that environment value,
+for example `PROJECT_PROFILE=atlas ./run.sh`, then run `omarchy-projects reload`
+after configuring the match. Existing profile variables work too; no launcher
+changes or app restart are needed when its processes already carry the value.
+All configured environment entries must match exactly; `~/` values expand at
+reload time.
+
+New matching windows open in their project's slot on the physical monitor where
+they would have opened. A background launch keeps the selected project, focused
+window, and pointer unchanged, including when the new window requests fullscreen.
+Matching applications also ignore unsolicited activation requests; selecting
+them yourself, including through the Apps menu, still brings them forward.
+Existing matching windows receive activation protection on reload without moving.
+Placement runs once when a window opens, so later manual moves are respected.
+
+The controller reads the window process's environment and, when it has no
+explicit profile, checks up to 16 ancestors. Checks run on window creation and
+config reload, with no daemon or polling. Unknown, unreadable, or conflicting identities are
+left alone. Windows opened through a shared service that loses the originating
+environment need a dedicated launcher/profile. Windows on unmanaged monitors,
+special workspaces, and pinned windows are not relocated.
+
 ### Project applications
 
 The **Apps** grid icon beside the project labels opens a dropdown of the selected

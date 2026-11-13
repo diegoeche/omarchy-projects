@@ -8,6 +8,116 @@ local appearance_project, appearance_generation = nil, 0
 local published_view = nil
 local renderer_connected = false
 local renderer_generation = 0
+local owned_tag = 'omarchy-projects-owned'
+local opening_tag = 'omarchy-projects-opening'
+
+local function read_process_file(pid, name, limit)
+  if type(pid) ~= 'number' or pid <= 1 or pid % 1 ~= 0 then return nil end
+  local file = io.open('/proc/' .. string.format('%d', pid) .. '/' .. name, 'rb')
+  if not file then return nil end
+  local data, err = file:read(limit + 1)
+  file:close()
+  if err or (data and #data > limit) then return nil end
+  return data or ''
+end
+
+local function environment_project(pid)
+  local seen = {}
+  -- Detached helpers still inherit their environment. Walking a bounded
+  -- ancestry also handles a child that starts with a reduced environment.
+  for _ = 1, 16 do
+    if not pid or seen[pid] then return nil end
+    seen[pid] = true
+    local data = read_process_file(pid, 'environ', 1024 * 1024)
+    if not data then return nil end
+    local env = {}
+    for entry in data:gmatch('[^%z]+') do
+      local key, value = entry:match('^([^=]+)=(.*)$')
+      if key then env[key] = value end
+    end
+    local owner, explicit = nil, false
+    for _, project in ipairs(config.projects) do
+      if project.window_env then
+        local matches = true
+        for key, value in pairs(project.window_env) do
+          if env[key] ~= nil then explicit = true end
+          if env[key] ~= value then matches = false end
+        end
+        if matches then
+          -- Conflicting identities are left alone instead of guessing.
+          if owner then return nil end
+          owner = project
+        end
+      end
+    end
+    if owner then return owner end
+    -- An explicit different profile is an opt-out from a parent's identity.
+    if explicit then return nil end
+    local stat = read_process_file(pid, 'stat', 8192)
+    pid = stat and tonumber(stat:match('^%d+ %(.*%) %S+ (%d+) '))
+  end
+end
+
+local function tag_window(window, tag)
+  hl.dispatch(hl.dsp.window.tag({ window = 'address:' .. window.address, tag = tag }))
+end
+
+local function protect_window(window)
+  if not window or not window.mapped or window.hidden then return nil end
+  local project = environment_project(window.pid)
+  if project then tag_window(window, '+' .. owned_tag) end
+  return project
+end
+
+function M.route_window(window)
+  if settling or not window or not window.mapped or window.hidden or window.pinned
+    or not window.workspace or window.workspace.id <= 0 then return false end
+  local monitor = window.monitor
+  local managed = false
+  for _, item in ipairs(M.monitors()) do
+    if monitor and monitor.name == item.name then managed = true end
+  end
+  if not managed then return false end
+  local project = protect_window(window)
+  if not project then return false end
+  local target = o.workspaces.workspace_id(monitor, project.slot)
+  if not monitor.active_workspace or monitor.active_workspace.id ~= target then
+    -- The early hook runs before initial focus, even on Hyprland versions
+    -- where static workspace rules have already run. Block focus for this map
+    -- only; the persistent tag blocks unsolicited activation, not user focus.
+    tag_window(window, '+' .. opening_tag)
+    local address = window.address
+    hl.timer(function()
+      local current = hl.get_window('address:' .. address)
+      if current then tag_window(current, '-' .. opening_tag) end
+    end, { type = 'oneshot', timeout = 1 })
+  end
+  if window.workspace.id == target then return true end
+  -- A silent move retains the physical monitor and never switches projects.
+  hl.dispatch(hl.dsp.window.move({ window = 'address:' .. window.address,
+    workspace = tostring(target), follow = false }))
+  return true
+end
+
+local function setup_window_inheritance()
+  local enabled = false
+  for _, project in ipairs(config.projects) do
+    if project.window_env then enabled = true end
+  end
+  if enabled then
+    hl.window_rule({ name = owned_tag, match = { tag = owned_tag }, focus_on_activate = false })
+    hl.window_rule({ name = opening_tag, match = { tag = opening_tag }, no_focus = true })
+    hl.on('window.open_early', M.route_window)
+  end
+  -- A reload can cancel a pending initial-focus timer. Clear stale tags and
+  -- re-evaluate ownership without moving existing windows, even when disabled.
+  for _, window in ipairs(hl.get_windows()) do
+    for _, tag in ipairs(window.tags or {}) do
+      if tag == owned_tag or tag == opening_tag then tag_window(window, '-' .. tag) end
+    end
+    if enabled then protect_window(window) end
+  end
+end
 
 local function json_string(value)
   return '"' .. tostring(value):gsub('[%z\1-\31\\"]', function(char)
@@ -368,6 +478,7 @@ function M.setup(settings)
       bezier = 'easeOutQuint', style = config.workspace_transition.style })
   end
   if settings.bindings ~= false then M.bindings() end
+  setup_window_inheritance()
   local function topology_changed()
     settling = true
     generation = generation + 1
