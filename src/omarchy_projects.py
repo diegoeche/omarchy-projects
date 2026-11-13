@@ -1,15 +1,18 @@
 """Configuration and CLI for Omarchy Projects. Standard library only."""
 
 import argparse
+import configparser
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 from project_appearance import (apply_requested, current_look, resolve_look,
                                 snapshot_look, validate_appearance)
@@ -36,6 +39,45 @@ def validate_emoji(value):
             char.isspace() or ord(char) < 32 or 127 <= ord(char) < 160 or 0xD800 <= ord(char) <= 0xDFFF
             for char in value)):
         raise ProjectError("emoji must be a short glyph or emoji sequence without whitespace/control characters")
+
+
+def validate_apps(value):
+    if not isinstance(value, list) or len(value) > 24:
+        raise ProjectError("apps must be a list of up to 24 application entries")
+    ids, names = set(), set()
+    for app in value:
+        if (not isinstance(app, dict) or not {"id", "name", "desktop"} <= set(app)
+                or set(app) - {"id", "name", "desktop", "match"}):
+            raise ProjectError("each app needs id, name, desktop, and optionally match")
+        ident, name, desktop = (app[key] for key in ("id", "name", "desktop"))
+        if not isinstance(ident, str) or not IDENTIFIER.fullmatch(ident):
+            raise ProjectError("app ids must use lowercase letters, digits, - or _")
+        if (not isinstance(name, str) or not 1 <= len(name) <= 48 or name != name.strip()
+                or any(ord(char) < 32 or 127 <= ord(char) < 160 for char in name)):
+            raise ProjectError("app names must be 1–48 characters without control characters")
+        if (not isinstance(desktop, str) or not desktop.endswith('.desktop')
+                or not 9 <= len(desktop) <= 255 or desktop.startswith(('.', '-'))
+                or any(char in desktop for char in '/\\')
+                or any(ord(char) < 32 or 127 <= ord(char) < 160 for char in desktop)):
+            raise ProjectError("desktop must be a desktop entry filename, such as editor.desktop")
+        if ident in ids or name in names:
+            raise ProjectError("app ids and names must be unique within each project")
+        ids.add(ident)
+        names.add(name)
+        if "match" in app:
+            match = app["match"]
+            if not isinstance(match, dict) or not match or set(match) - {"class", "env"}:
+                raise ProjectError("app match needs class and/or env")
+            if "class" in match and (not isinstance(match["class"], str) or not 1 <= len(match["class"]) <= 256
+                    or any(ord(char) < 32 for char in match["class"])):
+                raise ProjectError("app match class must be a window class name")
+            if "env" in match:
+                env = match["env"]
+                if (not isinstance(env, dict) or not 1 <= len(env) <= 8
+                        or any(not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key)
+                               or not isinstance(item, str) or not 1 <= len(item) <= 4096
+                               or any(ord(char) < 32 for char in item) for key, item in env.items())):
+                    raise ProjectError("app match env needs 1–8 environment names with nonempty literal values")
 
 
 def paths(home=None):
@@ -68,8 +110,8 @@ def validate(value):
     ids, slots, result = set(), set(), []
     for project in projects:
         if (not isinstance(project, dict) or not {"id", "name", "slot"} <= set(project)
-                or set(project) - {"id", "name", "slot", "appearance", "icon", "emoji", "label"}):
-            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon/emoji, label")
+                or set(project) - {"id", "name", "slot", "appearance", "icon", "emoji", "label", "apps"}):
+            raise ProjectError("each project needs id, name, slot, and optionally appearance, icon/emoji, label, apps")
         ident, name, slot = (project[k] for k in ("id", "name", "slot"))
         if not isinstance(ident, str) or not IDENTIFIER.fullmatch(ident):
             raise ProjectError("project ids must use lowercase letters, digits, - or _")
@@ -83,6 +125,8 @@ def validate(value):
         slots.add(slot)
         if "appearance" in project:
             validate_appearance(project["appearance"])
+        if "apps" in project:
+            validate_apps(project["apps"])
         if "icon" in project:
             validate_icon(project["icon"])
         if "emoji" in project:
@@ -202,6 +246,151 @@ def focused_project(config, locations):
                     if workspace == focused["activeWorkspace"]["id"]:
                         return select_project(config, ident)
     raise ProjectError("focus a configured project first")
+
+
+def desktop_entry(name):
+    """Find an installed desktop ID with user entries taking precedence."""
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    data_dirs = [data_home] + [Path(path) for path in
+        (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(os.pathsep) if path]
+    for directory in data_dirs:
+        entry = directory / "applications" / name
+        if entry.is_file():
+            return entry
+    raise ProjectError("application is not installed: " + name)
+
+
+def app_window_match(app, entry):
+    match = dict(app.get("match", {}))
+    if "class" not in match:
+        desktop = configparser.ConfigParser(interpolation=None, strict=False)
+        try:
+            desktop.read_string(entry.read_text())
+        except (OSError, configparser.Error) as exc:
+            raise ProjectError("cannot read desktop entry: " + str(entry)) from exc
+        wmclass = desktop.get("Desktop Entry", "StartupWMClass", fallback="")
+        if wmclass:
+            match["class"] = wmclass
+    if not match:
+        # GIO supplies this identity to applications started from a desktop entry.
+        match["env"] = {"GIO_LAUNCHED_DESKTOP_FILE": str(entry)}
+    return match
+
+
+def matching_app_window(match):
+    candidates = []
+    for window in json.loads(hyprctl("-j", "clients")):
+        if not window.get("mapped", True) or window.get("hidden", False):
+            continue
+        if "class" in match and window.get("class") != match["class"]:
+            continue
+        if match.get("env"):
+            try:
+                with (Path("/proc") / str(int(window["pid"])) / "environ").open("rb") as stream:
+                    environment = stream.read(1024 * 1024).split(b"\0")
+                if not all((key + "=" + os.path.expanduser(value)).encode() in environment
+                           for key, value in match["env"].items()):
+                    continue
+            except (OSError, ValueError, KeyError):
+                continue
+        candidates.append(window)
+    def recency(window):
+        history = window.get("focusHistoryID", -1)
+        return history if isinstance(history, int) and history >= 0 else 2**31
+    return min(candidates, key=recency, default=None)
+
+
+class AppEvents:
+    """A short-lived compositor subscription, only while activating an app."""
+    def __enter__(self):
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "/run/user/" + str(os.getuid()))
+        signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+        self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            self.connection.connect(str(Path(runtime) / "hypr" / signature / ".socket2.sock"))
+        except OSError:
+            self.connection.close()
+            raise
+        return self
+
+    def __exit__(self, *_):
+        self.connection.close()
+
+    def wait(self, predicate, timeout, message):
+        deadline = time.monotonic() + timeout
+        while True:
+            result = predicate()
+            if result:
+                return result
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ProjectError(message)
+            self.connection.settimeout(remaining)
+            try:
+                if not self.connection.recv(65536):
+                    raise ProjectError("Hyprland disconnected while activating the application")
+            except socket.timeout as exc:
+                raise ProjectError(message) from exc
+
+
+def project_is_selected(project, locations):
+    view = json.loads((locations["state"] / "view.json").read_text())
+    active = {monitor["name"]: monitor["activeWorkspace"]["id"]
+              for monitor in json.loads(hyprctl("-j", "monitors"))}
+    return bool(view["monitors"]) and all(
+        project["id"] in monitor["workspaces"]
+        and active.get(monitor["name"]) == monitor["workspaces"][project["id"]]
+        for monitor in view["monitors"])
+
+
+def launch_project_app(project, app_id, locations):
+    app = next((item for item in project.get("apps", []) if item["id"] == app_id), None)
+    if app is None:
+        raise ProjectError("unknown application for " + project["name"] + ": " + app_id)
+    entry = desktop_entry(app["desktop"])
+    match = app_window_match(app, entry)
+    with AppEvents() as events:
+        if not project_is_selected(project, locations):
+            call("show", project["id"])
+            events.wait(lambda: project_is_selected(project, locations), 3,
+                        "could not switch to " + project["name"])
+        window = matching_app_window(match)
+        if window is None:
+            # GIO interprets desktop Exec fields; no shell command is built.
+            subprocess.Popen(["gio", "launch", str(entry)], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            window = events.wait(lambda: matching_app_window(match), 20,
+                                 "no matching window appeared for " + app["name"])
+        # A launcher's own activation may focus a window on another workspace.
+        if not project_is_selected(project, locations):
+            call("show", project["id"])
+            events.wait(lambda: project_is_selected(project, locations), 3,
+                        "could not switch to " + project["name"])
+        call("activate_app", project["id"], window["address"])
+
+
+def apps_command(args, config, locations):
+    project = select_project(config, args.project) if args.project else focused_project(config, locations)
+    apps = project.get("apps", [])
+    if args.apps_action == "list":
+        print(json.dumps(apps, indent=2, ensure_ascii=False))
+        return
+    if args.apps_action == "launch":
+        launch_project_app(project, args.app, locations)
+        return
+    if not apps:
+        raise ProjectError("no applications configured for " + project["name"])
+    # Prefixing the icon also keeps an app named '--' out of menu argument parsing.
+    choices = ["󰀻\t" + app["name"] for app in apps]
+    result = subprocess.run(["omarchy", "menu", "select", project["name"] + " apps", *choices,
+                             "--", "--width", "360", "--maxheight", "420"],
+                            capture_output=True, text=True)
+    if result.returncode:
+        return
+    name = result.stdout.rstrip("\r\n")
+    app = next((item for item in apps if item["name"] == name), None)
+    if app:
+        launch_project_app(project, app["id"], locations)
 
 
 def save_config_change(config, locations):
@@ -394,6 +583,15 @@ def main(argv=None):
     icon.add_argument("--clear", action="store_true", help="remove the icon and show the project name")
     monitor = commands.add_parser("monitor", help="move the active window to a neighboring screen in the same project")
     monitor.add_argument("direction", choices=["l", "r", "u", "d"])
+    apps = commands.add_parser("apps", help="open the selected project's application menu")
+    apps.set_defaults(apps_action="menu", project=None)
+    apps_actions = apps.add_subparsers(dest="apps_action")
+    for name in ("menu", "list"):
+        action = apps_actions.add_parser(name)
+        action.add_argument("project", nargs="?", help="defaults to the focused project")
+    launch = apps_actions.add_parser("launch")
+    launch.add_argument("app", help="configured app id")
+    launch.add_argument("--project", help="defaults to the focused project")
     appearance = commands.add_parser("appearance", help="configure each project's theme and wallpaper")
     appearance_actions = appearance.add_subparsers(dest="appearance_action", required=True)
     appearance_actions.add_parser("apply", help="apply the latest queued project appearance")
@@ -416,6 +614,8 @@ def main(argv=None):
         config = load_config(args.config or locations["config"])
         if args.command == "icon":
             icon_command(args, config, locations)
+        elif args.command == "apps":
+            apps_command(args, config, locations)
         elif args.command == "transition":
             current = config.get("workspace_transition", {"style": "slide", "duration_ms": 200})
             direction = args.direction or {"slide": "horizontal", "slidevert": "vertical", "fade": "fade"}[current["style"]]

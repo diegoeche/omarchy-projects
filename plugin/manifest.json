@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "diegoeche.projects",
   "name": "Projects",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "Diego Echeverri",
-  "description": "Named projects across your monitors",
+  "description": "Named projects and their applications across your monitors",
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "Projects.qml" },
   "barWidget": {

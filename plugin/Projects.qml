@@ -11,6 +11,11 @@ BarWidget {
   moduleName: "diegoeche.projects"
   property var view: ({ projects: [], monitors: [] })
 
+  Translations {
+    id: strings
+    directory: Qt.resolvedUrl("i18n")
+  }
+
   function iconSource(value) {
     if (typeof value !== "string" || value.length > 4096 || /[\u0000-\u001f]/.test(value)) return ""
     var path = value.indexOf("~/") === 0 ? Quickshell.env("HOME") + value.slice(1) : value
@@ -74,6 +79,13 @@ BarWidget {
     return false
   }
 
+  function currentProject() {
+    for (var i = 0; i < root.view.projects.length; i++) {
+      if (root.activeProject(root.view.projects[i].id)) return root.view.projects[i]
+    }
+    return null
+  }
+
   // Existing windows on unconfigured/guest workspaces stay reachable.
   function extraWorkspaces() {
     var known = {}, extras = [], workspaces = Hyprland.workspaces.values
@@ -97,7 +109,7 @@ BarWidget {
 
   GridLayout {
     id: grid
-    columns: root.vertical ? 1 : Math.max(1, root.view.projects.length + root.extraWorkspaces().length)
+    columns: root.vertical ? 1 : Math.max(1, root.view.projects.length + root.extraWorkspaces().length + 1)
     columnSpacing: root.vertical ? 0 : Style.space(1)
     rowSpacing: root.vertical ? Style.space(2) : 0
 
@@ -204,6 +216,27 @@ BarWidget {
         horizontalMargin: 6
         fixedHeight: root.barSize
         onPressed: root.run("hl.dispatch(hl.dsp.focus({ workspace = " + JSON.stringify(String(modelData)) + " }))")
+      }
+    }
+
+    WidgetButton {
+      id: appsButton
+      objectName: "project-apps-button"
+      readonly property var project: root.currentProject()
+      readonly property bool available: project !== null && project.app_count > 0
+      bar: root.bar
+      text: root.vertical ? "󰀻" : strings.t("apps.label")
+      tooltipText: !project ? strings.t("apps.chooseProject")
+        : available ? strings.t("apps.title").arg(project.name) : strings.t("apps.empty").arg(project.name)
+      Accessible.name: project ? strings.t("apps.title").arg(project.name) : strings.t("apps.accessible")
+      Accessible.role: Accessible.Button
+      interactive: available
+      opacity: available ? 1 : 0.5
+      horizontalMargin: 7
+      fixedHeight: root.barSize
+      onPressed: {
+        if (available && root.bar)
+          root.bar.run("omarchy-projects apps menu " + Util.shellQuote(project.id))
       }
     }
   }

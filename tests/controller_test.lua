@@ -45,6 +45,13 @@ local function fixture(options)
     end,
     get_active_monitor = function() return focused end,
     get_active_window = function() return active end,
+    get_window = function(selector)
+      local address = selector:gsub('^address:', '')
+      for _, window in ipairs(windows) do
+        if window.address == address then return window end
+      end
+      return active and active.address == address and active or nil
+    end,
     get_cursor_pos = function() return pointer and { x = pointer.x, y = pointer.y } end,
     on = function(event, callback)
       events[event] = events[event] or {}
@@ -62,13 +69,22 @@ local function fixture(options)
     dispatch = function(dispatch)
       if dispatch.kind == 'cursor' then pointer = { x = dispatch.options.x, y = dispatch.options.y } end
       if dispatch.kind == 'global' then calls[#calls + 1] = dispatch end
-      if dispatch.kind == 'focus' then focused = assert(find(dispatch.options.monitor)) end
+      if dispatch.kind == 'focus' then
+        if dispatch.options.window then
+          active = assert(hl.get_window(dispatch.options.window))
+          focused = type(active.monitor) == 'table' and active.monitor or assert(find(active.monitor))
+          if pointer then pointer = { x = focused.id * 1000 + 500, y = 500 } end
+        else
+          focused = assert(find(dispatch.options.monitor))
+        end
+      end
       if dispatch.kind == 'move' then
+        local moved = dispatch.options.window and assert(hl.get_window(dispatch.options.window)) or active
         local target = tonumber(dispatch.options.workspace)
-        active.workspace = target
+        moved.workspace = type(moved.workspace) == 'table' and { id = target } or target
         for _, monitor in ipairs(monitors) do
           if target > bases[monitor.name] and target <= bases[monitor.name] + 10 then
-            active.monitor = monitor.name
+            moved.monitor = type(moved.monitor) == 'table' and monitor or monitor.name
             if dispatch.options.follow then focused = monitor end
           end
         end
@@ -162,6 +178,32 @@ test('cross-screen move stays inside the project', function()
   equal(active.workspace, 1)
   equal(focused.name, 'left')
   equal(monitors[2].active_workspace.id, 41)
+end)
+
+test('project app activation moves only the selected window and retains its physical monitor and pointer', function()
+  local controller = fixture({ pointer = { x = 1240, y = 14 } })
+  local app = { address = '0x456', monitor = monitors[1], workspace = { id = 7 } }
+  windows = { app }
+  controller.show('boreal')
+  controller.activate_app('boreal', app.address)
+  equal(app.workspace.id, 3)
+  equal(app.monitor.name, 'left')
+  equal(active, app)
+  equal(focused.name, 'left')
+  equal(monitors[2].active_workspace.id, 43)
+  equal(pointer.x, 1240)
+  equal(pointer.y, 14)
+end)
+
+test('project app activation rejects stale projects and unmanaged monitors without moving windows', function()
+  local controller = fixture()
+  local app = { address = '0x456', monitor = monitors[1], workspace = { id = 7 } }
+  windows = { app }
+  equal(pcall(controller.activate_app, 'boreal', app.address), false)
+  equal(app.workspace.id, 7)
+  app.monitor = { name = 'unmanaged' }
+  equal(pcall(controller.activate_app, 'atlas', app.address), false)
+  equal(app.workspace.id, 7)
 end)
 
 test('cycling follows config order and back toggles projects', function()

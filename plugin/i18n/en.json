@@ -1,0 +1,7 @@
+{
+  "apps.label": "Apps",
+  "apps.title": "%1 apps",
+  "apps.empty": "No applications configured for %1",
+  "apps.chooseProject": "Select a project to open its applications",
+  "apps.accessible": "Project apps"
+}

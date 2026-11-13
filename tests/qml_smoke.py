@@ -28,7 +28,7 @@ def main():
             "version": 1, "projects": [
                 {"id": "atlas", "name": "Atlas", "slot": 1},
                 {"id": "literal", "name": '<img src="https://invalid.test/x">', "slot": 2, "icon": str(icon), "label": "both"},
-                {"id": "badge", "name": "Icon only", "slot": 3, "icon": str(icon), "label": "icon"},
+                {"id": "badge", "name": "Icon only", "slot": 3, "icon": str(icon), "label": "icon", "app_count": 2},
                 {"id": "missing", "name": "Missing icon", "slot": 4, "icon": str(target / 'missing.svg'), "label": "icon"},
                 {"id": "remote", "name": "Blocked remote", "slot": 5, "icon": "https://invalid.test/icon.png", "label": "icon"},
                 {"id": "tooltip", "name": '<img src="https://invalid.test/x">', "slot": 6, "icon": str(icon), "label": "icon"},
@@ -40,7 +40,12 @@ def main():
 import Quickshell
 import "plugin" as Projects
 Scope {
-  Projects.Projects { id: projects }
+  id: fixture
+  property string selectedProject: "badge"
+  Projects.Projects {
+    id: projects
+    function activeProject(id) { return id === fixture.selectedProject }
+  }
   Timer {
     interval: 500; running: true
     onTriggered: {
@@ -71,8 +76,17 @@ Scope {
         throw new Error("Emoji-only label failed")
       if (!objects["project-emoji-composed"].visible || !objects["project-label-composed"].visible
           || objects["project-emoji-composed"].text !== "👩‍💻") throw new Error("Composed emoji and text label failed")
-      console.log("PROJECTS_QML_PASS")
-      Qt.quit()
+      var apps = objects["project-apps-button"]
+      if (!apps.available || !apps.interactive || apps.project.id !== "badge"
+          || apps.tooltipText !== "Icon only apps") throw new Error("Apps did not follow the selected project")
+      fixture.selectedProject = "tooltip"
+      Qt.callLater(function() {
+        if (apps.available || apps.interactive || apps.project.id !== "tooltip"
+            || apps.tooltipText !== 'No applications configured for <img src="https://invalid.test/x">')
+          throw new Error("Empty apps state or literal project tooltip failed")
+        console.log("PROJECTS_QML_PASS")
+        Qt.quit()
+      })
     }
   }
 }''')
@@ -83,7 +97,7 @@ Scope {
         output = result.stdout + result.stderr
         if result.returncode or "PROJECTS_QML_PASS" not in output or "Binding loop detected" in output:
             raise SystemExit(output)
-        print("PASS native QML: text/image/emoji labels, Unicode sequences, local sources, and fallback")
+        print("PASS native QML: text/image/emoji labels, local sources, fallback, and project-specific Apps state")
 
 
 if __name__ == "__main__":

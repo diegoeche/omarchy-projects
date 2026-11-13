@@ -83,7 +83,8 @@ function M.publish()
       .. ',"name":' .. json_string(project.name) .. ',"slot":' .. project.slot
       .. (project.icon and ',"icon":' .. json_string(project.icon) or '')
       .. (project.emoji and ',"emoji":' .. json_string(project.emoji) or '')
-      .. (project.label and ',"label":' .. json_string(project.label) or '') .. '}'
+      .. (project.label and ',"label":' .. json_string(project.label) or '')
+      .. ',"app_count":' .. #(project.apps or {}) .. '}'
   end
   for _, monitor in ipairs(M.monitors()) do
     local workspaces = {}
@@ -249,6 +250,40 @@ function M.move(id, follow)
   busy = false
   if not ok then error(err) end
   if follow ~= false then M.show(project.id) end
+  return true
+end
+
+function M.activate_app(id, address)
+  local project = project_for(id)
+  assert(synchronized(project), 'Switch to the project before activating its application')
+  local window = assert(hl.get_window('address:' .. address), 'Application window has closed')
+  local monitor = window.monitor
+  local managed = false
+  for _, item in ipairs(M.monitors()) do
+    if monitor and item.name == monitor.name then managed = true end
+  end
+  assert(managed, 'Application is on a monitor outside this project configuration')
+  local target = o.workspaces.workspace_id(monitor, project.slot)
+  local pointer = hl.get_cursor_pos()
+  busy = true
+  local ok, err = pcall(function()
+    -- The synchronized project already created the target on this monitor.
+    if not window.workspace or window.workspace.id ~= target then
+      hl.dispatch(hl.dsp.window.move({ window = 'address:' .. address,
+        workspace = tostring(target), follow = false }))
+    end
+    hl.dispatch(hl.dsp.focus({ window = 'address:' .. address }))
+  end)
+  local pointer_ok, pointer_err = pcall(function()
+    local current = pointer and hl.get_cursor_pos()
+    if current and (current.x ~= pointer.x or current.y ~= pointer.y) then
+      hl.dispatch(hl.dsp.cursor.move({ x = pointer.x, y = pointer.y }))
+    end
+  end)
+  busy = false
+  if not ok then error(err) end
+  if not pointer_ok then error(pointer_err) end
+  M.publish()
   return true
 end
 

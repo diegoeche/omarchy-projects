@@ -14,6 +14,7 @@ from project_assets import prepare_assets
 START = "-- >>> omarchy-projects >>>"
 END = "-- <<< omarchy-projects <<<"
 PLUGIN = "diegoeche.projects"
+PLUGIN_FILES = ("manifest.json", "Projects.qml", "i18n/en.json")
 BACKGROUND = "diegoeche.background"
 BACKGROUND_FILES = ("ProjectMotion.js", "ProjectWallpapers.qml", "ProjectScene.qml", "Background.qml", "manifest.json")
 THEME_HELPERS = ("omarchy-restart-hyprctl", "omarchy-theme-set-templates", "omarchy-shell")
@@ -176,7 +177,7 @@ def install(locations, config_path=None, no_bar=False, no_reload=False, uninstal
                 if record.get("background"):
                     remove_background(shell, record)
                 transaction.write(locations["shell"], json.dumps(shell, indent=2) + "\n")
-            for name in ("manifest.json", "Projects.qml"):
+            for name in PLUGIN_FILES:
                 transaction.remove(locations["plugin"] / name)
             for name in BACKGROUND_FILES:
                 transaction.remove(locations["background_plugin"] / name)
@@ -228,7 +229,7 @@ def install(locations, config_path=None, no_bar=False, no_reload=False, uninstal
                 if not record.get("bar"):
                     record["bar_replacements"] = replaced
                 record["bar"] = True
-                for name in ("manifest.json", "Projects.qml"):
+                for name in PLUGIN_FILES:
                     transaction.write(locations["plugin"] / name, (ROOT / "plugin" / name).read_text())
                 transaction.write(locations["shell"], json.dumps(shell, indent=2) + "\n")
             record["version"] = 1

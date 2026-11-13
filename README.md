@@ -31,6 +31,7 @@ outside the configured projects remain clickable as `WS N`.
 - A small native Omarchy bar widget, using the existing shell and theme.
 - A CLI and installer using Python's standard library.
 - Optional project themes and wallpapers, applied through Omarchy's own commands.
+- A configurable Apps menu for each project, using installed desktop launchers.
 - An optional background clone inside the existing shell, for resident wallpapers
   and coordinated transitions.
 
@@ -140,6 +141,56 @@ For emoji labels, configure `"emoji": "🔥"` instead of an image path. The
 automatically. Unicode emoji sequences, including variation selectors and
 joined emoji, are supported through the system emoji font. They need no image
 file and keep the same name tooltip and active indicator.
+
+### Project applications
+
+The **Apps** button beside the project labels opens the selected project's
+applications. Add an `apps` list to a project in `projects.json`, then run
+`omarchy-projects reload`:
+
+```json
+"apps": [
+  { "id": "chat", "name": "Chat", "desktop": "Chat Atlas.desktop" },
+  { "id": "editor", "name": "Editor", "desktop": "editor-atlas.desktop" }
+]
+```
+
+`desktop` is the filename of an installed application in your XDG applications
+directories. User entries take precedence over system entries. Existing launchers
+keep their own profiles, login sessions, icons, and launch arguments.
+
+Selecting an app brings its existing window into this project, keeping it on
+its physical monitor, or launches it if it is closed. The menu does not start
+apps automatically when switching projects. A project with no configured apps
+has a dimmed Apps button.
+
+Window matching uses the launcher's `StartupWMClass`. For separate profiles of
+an app that share a window class, add an exact environment match:
+
+```json
+{
+  "id": "editor",
+  "name": "Editor",
+  "desktop": "editor-atlas.desktop",
+  "match": {
+    "class": "my-editor",
+    "env": { "EDITOR_PROFILE": "atlas" }
+  }
+}
+```
+
+The environment values must match the GUI process; `~/` expands to your home
+directory. Only the matching instance is focused or moved. Without a window
+class, the desktop file identity supplied by GIO is used. Activation listens
+for compositor events only while a window is starting, for up to 20 seconds.
+
+```sh
+omarchy-projects apps                         # menu for the selected project
+omarchy-projects apps menu atlas              # menu for an explicit project
+omarchy-projects apps list atlas              # configured entries as JSON
+omarchy-projects apps launch chat             # activate one configured app
+omarchy-projects apps launch editor --project atlas
+```
 
 ### Workspace transitions
 
