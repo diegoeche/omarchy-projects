@@ -132,7 +132,8 @@ BarWidget {
           Image {
             id: projectIcon
             objectName: "project-icon-" + projectButton.modelData.id
-            width: Style.bar.iconSize
+            // Use the full bar canvas for legible project images and emoji.
+            width: Style.bar.iconCanvas
             height: width
             anchors.verticalCenter: parent.verticalCenter
             visible: projectIcon.source.toString() !== "" && projectIcon.status !== Image.Error
@@ -150,7 +151,7 @@ BarWidget {
             textFormat: Text.PlainText
             text: root.emojiText(projectButton.modelData.emoji)
             font.family: "emoji"
-            font.pixelSize: Style.bar.iconSize
+            font.pixelSize: Style.bar.iconCanvas
             color: projectButton.foreground
             renderType: Text.NativeRendering
           }
