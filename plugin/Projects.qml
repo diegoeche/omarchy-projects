@@ -247,7 +247,7 @@ BarWidget {
       readonly property bool available: project !== null && project.app_count > 0
       visible: available
       bar: root.bar
-      text: root.vertical ? "󰀻" : strings.t("apps.label")
+      text: "󰀻"
       tooltipText: !project ? strings.t("apps.chooseProject")
         : available ? strings.t("apps.title").arg(project.name) : strings.t("apps.empty").arg(project.name)
       Accessible.name: project ? strings.t("apps.title").arg(project.name) : strings.t("apps.accessible")

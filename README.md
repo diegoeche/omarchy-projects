@@ -144,8 +144,9 @@ file and keep the same name tooltip and active indicator.
 
 ### Project applications
 
-The **Apps** button beside the project labels opens a dropdown of the selected
-project's applications, using each desktop launcher's actual icon. The dropdown
+The **Apps** grid icon beside the project labels opens a dropdown of the selected
+project's applications, using each desktop launcher's actual icon. Its hover
+label identifies the selected project's apps. The dropdown
 supports mouse selection, Up/Down or j/k, Enter, and Escape. Add an `apps` list
 to a project in `projects.json`, then run
 `omarchy-projects reload`:
